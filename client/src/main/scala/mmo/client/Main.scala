@@ -23,7 +23,7 @@ import org.lwjgl.system.MemoryUtil._
 import scala.util.{Failure, Success, Try}
 
 object Main {
-  private val requestedWindowSize = V2(640, 480)
+  private val requestedWindowSize = V2(960, 720)
 
   private val eventsRef = new AtomicReference(List.empty[GlfwEvent])
 
@@ -115,7 +115,7 @@ object Main {
   }
 
   private def render(window: Long, nvg: Long, outputStream: OutputStream): Unit = {
-    val scaleFactor = 2
+    val scaleFactor = 3
 
     val font = nvgCreateFont(nvg, "Roboto", "assets/roboto/Roboto-Regular.ttf")
     nvgFontFaceId(nvg, font)
@@ -137,7 +137,25 @@ object Main {
     var fpsWindowTotalTime = 0.0
     var fpsWindowLength = 0
 
-    val playerPositions = scala.collection.mutable.Map.empty[UUID, V2[Int]]
+    final case class PlayerState(
+      position: V2[Int],
+      previousPosition: V2[Int]
+    ) {
+      val directionIndex: Int = {
+        val (down, up, right, left) = (0, 1, 2, 3)
+        val V2(dx, dy) = position - previousPosition
+        if (dx < 0) {
+          left
+        } else if (dx > 0) {
+          right
+        } else if (dy < 0) {
+          up
+        } else {
+          down
+        }
+      }
+    }
+    val playerStates = scala.collection.mutable.Map.empty[UUID, PlayerState]
 
     while (!glfwWindowShouldClose(window)) {
       val events = eventsRef.getAndSet(Nil).reverse
@@ -161,10 +179,14 @@ object Main {
         nextPlayerEvent match {
           case PlayerPositionChanged(positions) =>
             positions.foreach { entry =>
-              playerPositions.update(entry.id, V2(entry.x, entry.y))
+              val position = V2(entry.x, entry.y)
+              playerStates.updateWith(entry.id) {
+                case Some(old) => Some(PlayerState(position = position, previousPosition = old.position))
+                case None => Some(PlayerState(position = position, previousPosition = position))
+              }
             }
           case PlayerDisconnected(id) =>
-            playerPositions.remove(id)
+            playerStates.remove(id)
         }
         nextPlayerEvent = playerEventQueue.poll()
       }
@@ -175,12 +197,12 @@ object Main {
         nvgBeginFrame(nvg, screenSize.x, screenSize.y, pixelRatio)
 
         nvgFillColor(nvg, createColor(0.0, 1.0, 1.0))
-        playerPositions.foreach {
-          case (id, position) =>
+        playerStates.foreach {
+          case (id, player) =>
               characterAtlas.render(
                 nvg,
-                screenPosition = (scaleFactor * TileAtlas.tileSize) *: (position - V2(0, 1)),
-                tilePosition = V2(2, 0),
+                screenPosition = (scaleFactor * TileAtlas.tileSize) *: (player.position - V2(0, 1)),
+                tilePosition = V2(player.directionIndex, 0),
                 tileCount = V2(1, 2),
                 scaleFactor = scaleFactor
               )
