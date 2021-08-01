@@ -1,4 +1,4 @@
-package mmo.client
+package mmo.client.graphics
 
 sealed trait GlfwEvent
 
