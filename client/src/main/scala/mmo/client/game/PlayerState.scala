@@ -1,10 +1,11 @@
 package mmo.client.game
 
-import mmo.client.common.V2
+import mmo.common.linear.V2
 
 final case class PlayerState(
-  position: V2[Int],
-  previousPosition: V2[Int]
+  position: V2[Float],
+  previousPosition: V2[Float],
+  lastPositionFromServer: V2[Float]
 ) {
 
   val directionIndex: Int = {

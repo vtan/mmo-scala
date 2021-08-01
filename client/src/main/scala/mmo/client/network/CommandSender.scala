@@ -1,6 +1,6 @@
 package mmo.client.network
 
-import mmo.common.PlayerCommand
+import mmo.common.api.PlayerCommand
 
 import com.sksamuel.avro4s.AvroOutputStream
 import java.io.{ByteArrayOutputStream, OutputStream}

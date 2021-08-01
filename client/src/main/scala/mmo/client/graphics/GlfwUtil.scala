@@ -1,6 +1,6 @@
 package mmo.client.graphics
 
-import mmo.client.common.V2
+import mmo.common.linear.V2
 
 import org.lwjgl.glfw.GLFW._
 import org.lwjgl.glfw.GLFWErrorCallback

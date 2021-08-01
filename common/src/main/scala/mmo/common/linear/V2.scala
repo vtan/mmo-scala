@@ -1,6 +1,6 @@
-package mmo.client.common
+package mmo.common.linear
 
-final case class V2[T](x: T, y: T) {
+final case class V2[@specialized(Int, Float, Double) T](x: T, y: T) {
 
   def +(rhs: V2[T])(implicit num: Numeric[T]): V2[T] =
     V2(num.plus(x, rhs.x), num.plus(y, rhs.y))

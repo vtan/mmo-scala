@@ -1,6 +1,6 @@
 package mmo.client.network
 
-import mmo.common.PlayerEvent
+import mmo.common.api.PlayerEvent
 
 import com.sksamuel.avro4s.AvroInputStream
 import java.io.{ByteArrayInputStream, InputStream}
@@ -10,6 +10,7 @@ import scala.util.{Failure, Success, Try}
 
 trait EventReceiver {
   def poll(): PlayerEvent
+  def take(): PlayerEvent
 }
 
 class EventReceiverRunnable(
@@ -20,6 +21,9 @@ class EventReceiverRunnable(
 
   override def poll(): PlayerEvent =
     eventQueue.poll()
+
+  override def take(): PlayerEvent =
+    eventQueue.take()
 
   override def run(): Unit =
     try {

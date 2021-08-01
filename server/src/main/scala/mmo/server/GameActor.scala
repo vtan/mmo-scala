@@ -1,15 +1,16 @@
 package mmo.server
 
+import mmo.common.api.{PlayerCommand, PlayerDisconnected, PlayerEvent, PlayerPositionChanged, SessionEstablished}
+import mmo.common.linear.V2
+
 import akka.actor.typed.Behavior
 import akka.actor.typed.scaladsl.Behaviors
 import akka.stream.scaladsl.SourceQueue
 import java.util.UUID
-import mmo.common.{PlayerCommand, PlayerDisconnected, PlayerEvent, PlayerPositionChanged}
 
 final case class PlayerState(
   id: UUID,
-  x: Int,
-  y: Int,
+  position: V2[Float],
   queue: SourceQueue[PlayerEvent]
 )
 
@@ -25,10 +26,11 @@ object GameActor {
     Behaviors.receiveMessage {
 
       case Connected(id, queue) =>
-        val player = PlayerState(id, 0, 0, queue)
+        val player = PlayerState(id, V2.zero, queue)
         broadcastPlayerPosition(player, state)
 
         val newState = state.updated(player.id, player)
+        queue.offer(SessionEstablished(id))
         queue.offer(PlayerPositionChanged(
           newState.values.map(playerStateToEvent).toSeq
         ))
@@ -37,13 +39,11 @@ object GameActor {
       case PlayerCommandReceived(id, command) =>
         state.get(id) match {
           case Some(player) =>
-            val (dx, dy) = command match {
-              case PlayerCommand.Move(dx, dy) => (dx, dy)
+            val (x, y) = command match {
+              case PlayerCommand.Move(V2(x, y)) => (x, y)
             }
-            val x = player.x + dx
-            val y = player.y + dy
             if (x >= 0 && y >= 0 && x < 32 && y < 32) {
-              val newPlayer = player.copy(x = x, y = y)
+              val newPlayer = player.copy(position = V2(x, y))
               val newState = state.updated(newPlayer.id, newPlayer)
               broadcastPlayerPosition(newPlayer, newState)
               running(newState)
@@ -70,5 +70,5 @@ object GameActor {
     state.values.foreach(_.queue.offer(event))
 
   private def playerStateToEvent(player: PlayerState): PlayerPositionChanged.Entry =
-    PlayerPositionChanged.Entry(player.id, player.x, player.y)
+    PlayerPositionChanged.Entry(player.id, player.position)
 }

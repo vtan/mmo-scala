@@ -1,9 +1,10 @@
 package mmo.client
 
-import mmo.client.common.V2
 import mmo.client.game.Game
 import mmo.client.graphics.{GlfwEvent, GlfwUtil, KeyboardEvent}
 import mmo.client.network.{CommandSenderRunnable, EventReceiverRunnable}
+import mmo.common.api.SessionEstablished
+import mmo.common.linear.V2
 
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicReference
@@ -47,7 +48,8 @@ object Main {
       }
     )
 
-    new Game(window, eventsRef, eventReceiver, commandSender).run()
+    val SessionEstablished(playerId) = eventReceiver.take()
+    new Game(window, playerId, eventsRef, eventReceiver, commandSender).run()
 
     eventReceiverThread.interrupt()
     commandSenderThread.interrupt()

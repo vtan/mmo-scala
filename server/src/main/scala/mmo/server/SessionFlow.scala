@@ -9,7 +9,8 @@ import akka.stream.typed.scaladsl.ActorSink
 import com.sksamuel.avro4s.{AvroInputStream, AvroOutputStream}
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 import java.util.UUID
-import mmo.common.{PlayerCommand, PlayerEvent}
+import mmo.common.api.{PlayerCommand, PlayerEvent}
+
 import scala.util.{Failure, Success, Try}
 
 object SessionFlow {
