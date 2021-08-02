@@ -12,7 +12,6 @@ import com.sksamuel.avro4s.{AvroInputStream, AvroOutputStream}
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
 import java.util.UUID
 import scala.concurrent.duration._
-import scala.util.{Failure, Success, Try}
 
 object SessionFlow {
   private val maxMessageBytes = 512

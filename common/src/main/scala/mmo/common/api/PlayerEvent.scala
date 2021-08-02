@@ -17,7 +17,7 @@ final case class SessionEstablished(id: UUID) extends PlayerEvent
 final case class PlayerPositionChanged(positions: Seq[PlayerPositionChanged.Entry]) extends PlayerEvent
 
 object PlayerPositionChanged {
-  final case class Entry(id: UUID, position: V2[Float])
+  final case class Entry(id: UUID, position: V2[Float], direction: Direction)
 }
 
 final case class PlayerDisconnected(id: UUID) extends PlayerEvent

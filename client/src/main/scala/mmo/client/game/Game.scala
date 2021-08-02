@@ -2,7 +2,7 @@ package mmo.client.game
 
 import mmo.client.graphics.{FpsCounter, GlfwEvent, GlfwUtil, KeyboardEvent, TileAtlas}
 import mmo.client.network.{CommandSender, EventReceiver}
-import mmo.common.api.{PlayerCommand, PlayerDisconnected, PlayerPositionChanged}
+import mmo.common.api.{Direction, PlayerCommand, PlayerDisconnected, PlayerPositionChanged}
 import mmo.common.linear.V2
 
 import java.util.UUID
@@ -19,7 +19,7 @@ class Game(
   eventReceiver: EventReceiver,
   commandSender: CommandSender
 ) {
-  private val nvg: Long = nvgCreate(NVG_ANTIALIAS)
+  private val nvg: Long = nvgCreate(0)
   private val (screenSize: V2[Float], pixelRatio: Float) = GlfwUtil.getWindowGeometry(window)
 
   private val tileAtlas: TileAtlas = TileAtlas.loadFromFile(nvg, "assets/tileset.png")
@@ -30,7 +30,6 @@ class Game(
   private val tilePerSecond: Float = 4.0f
 
   private val playerStates = scala.collection.mutable.Map.empty[UUID, PlayerState]
-  private var currentMovement: Option[V2[Float]] = None
 
   def run(): Unit = {
     val fpsCounter = new FpsCounter
@@ -39,7 +38,7 @@ class Game(
 
     while (!glfwWindowShouldClose(window)) {
       val events = glfwEventsRef.getAndSet(Nil).reverse
-      update(events, (now - lastFrameTime).toFloat)
+      update(events, now.toFloat, (now - lastFrameTime).toFloat)
 
       render()
       glfwSwapBuffers(window)
@@ -51,49 +50,79 @@ class Game(
     }
   }
 
-  private def update(events: List[GlfwEvent], dt: Float): Unit = {
+  private def update(events: List[GlfwEvent], now: Float, dt: Float): Unit = {
     events.foreach {
       case KeyboardEvent(key, KeyboardEvent.Press) =>
-        val direction: Option[V2[Float]] = key match {
-          case GLFW_KEY_RIGHT => Some(V2(1, 0))
-          case GLFW_KEY_LEFT => Some(V2(-1, 0))
-          case GLFW_KEY_UP => Some(V2(0, -1))
-          case GLFW_KEY_DOWN => Some(V2(0, 1))
-          case _ => None
+        val direction = key match {
+          case GLFW_KEY_RIGHT => Direction.right
+          case GLFW_KEY_LEFT => Direction.left
+          case GLFW_KEY_UP => Direction.up
+          case GLFW_KEY_DOWN => Direction.down
+          case _ => Direction.none
         }
-        direction.foreach { dir =>
-          playerStates.get(playerId).foreach { state =>
-            commandSender.offer(PlayerCommand.Move(state.position))
-          }
-          currentMovement = Some(dir)
+        if (direction.isMoving) {
+          playerStates.updateWith(playerId)(_.map { state =>
+            commandSender.offer(PlayerCommand.Move(state.position, direction))
+            state.copy(direction = direction)
+          })
         }
 
       case KeyboardEvent(key, KeyboardEvent.Release) =>
         key match {
           case GLFW_KEY_RIGHT | GLFW_KEY_LEFT | GLFW_KEY_UP | GLFW_KEY_DOWN =>
-            playerStates.get(playerId).foreach { state =>
-              commandSender.offer(PlayerCommand.Move(state.position))
-            }
-            currentMovement = None
+            playerStates.updateWith(playerId)(_.map { state =>
+              val direction = Direction.none
+              commandSender.offer(PlayerCommand.Move(state.position, direction))
+              state.copy(direction = direction)
+            })
           case _ => ()
         }
 
       case _ => ()
     }
 
-    currentMovement.foreach { normal =>
-      val positionChange = (dt * tilePerSecond) *: normal
-      playerStates.updateWith(playerId)(_.map { state =>
-        val newPosition = state.position + positionChange
-        val hasCrossedTile = newPosition.map(_.toInt) - state.previousPosition.map(_.toInt) != V2.zero[Int]
-        if (hasCrossedTile) {
-          commandSender.offer(PlayerCommand.Move(newPosition))
+    playerStates.mapValuesInPlace { (id, state) =>
+      if (id == playerId) {
+        if (state.direction.isMoving) {
+          val normal = state.direction.vector
+          val positionChange = (dt * tilePerSecond) *: normal
+          val newPosition = state.position + positionChange
+          val hasCrossedTile = newPosition.map(_.toInt) - state.previousPosition.map(_.toInt) != V2.zero[Int]
+          if (hasCrossedTile) {
+            commandSender.offer(PlayerCommand.Move(newPosition, state.direction))
+          }
+          state.copy(
+            position = newPosition,
+            previousPosition = state.position
+          )
+        } else {
+          state
         }
-        state.copy(
-          position = newPosition,
-          previousPosition = state.position
-        )
-      })
+
+      } else {
+        if (state.direction.isMoving) {
+          val interpolationStartPeriod = 0.5f
+          if (now - state.receivedAt <= interpolationStartPeriod) {
+            // Interpolating to predicted position in the near future to avoid jumping on a new update from server
+            val t = (now - state.receivedAt) / interpolationStartPeriod
+            val target = state.lastPositionFromServer + (interpolationStartPeriod * tilePerSecond) *: state.direction.vector
+            val position = ((1 - t) *: state.smoothedPositionAtLastServerUpdate) + (t *: target)
+            state.copy(
+              position = position,
+              previousPosition = state.smoothedPositionAtLastServerUpdate
+            )
+          } else {
+            val interpolatedMovement = ((now - state.receivedAt) * tilePerSecond) *: state.direction.vector
+            val position = state.lastPositionFromServer + interpolatedMovement
+            state.copy(
+              position = position,
+              previousPosition = state.lastPositionFromServer
+            )
+          }
+        } else {
+          state
+        }
+      }
     }
 
     var nextPlayerEvent = eventReceiver.poll()
@@ -103,14 +132,17 @@ class Game(
           positions.foreach { entry =>
             playerStates.updateWith(entry.id) {
               case Some(old) =>
-                val isReconciliationAfterStop = entry.id == playerId && currentMovement.isDefined
-                if (isReconciliationAfterStop) {
-                  Some(old.copy(lastPositionFromServer = entry.position))
+                if (entry.direction.isMoving) {
+                  if (entry.id == playerId) {
+                    Some(old.copy(lastPositionFromServer = entry.position, receivedAt = now))
+                  } else {
+                    Some(old.copy(lastPositionFromServer = entry.position, smoothedPositionAtLastServerUpdate = old.position, direction = entry.direction, receivedAt = now))
+                  }
                 } else {
-                  Some(old.copy(position = entry.position, previousPosition = old.position, lastPositionFromServer = entry.position))
+                  Some(old.copy(position = entry.position, previousPosition = old.previousPosition, lastPositionFromServer = entry.position, smoothedPositionAtLastServerUpdate = old.position, direction = entry.direction, receivedAt = now))
                 }
               case None =>
-                Some(PlayerState(position = entry.position, previousPosition = entry.position, lastPositionFromServer = entry.position))
+                Some(PlayerState(position = entry.position, previousPosition = entry.position, lastPositionFromServer = entry.position, smoothedPositionAtLastServerUpdate = entry.position, direction = entry.direction, receivedAt = now))
             }
           }
         case PlayerDisconnected(id) =>
@@ -145,7 +177,7 @@ class Game(
         tileAtlas.render(
           nvg,
           screenPosition = (scaleFactor * TileAtlas.tileSize).toFloat *: (player.position - V2(0, 1)),
-          tilePosition = V2(player.directionIndex, 0),
+          tilePosition = V2(player.directionTileIndex, 0),
           tileCount = V2(1, 2),
           scaleFactor = scaleFactor
         )
