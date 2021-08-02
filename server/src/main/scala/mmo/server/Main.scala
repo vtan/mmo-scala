@@ -2,6 +2,7 @@ package mmo.server
 
 import akka.actor.typed.scaladsl.adapter._
 import akka.actor.ActorSystem
+import akka.io.Tcp.SO.TcpNoDelay
 import akka.stream.scaladsl.{Source, Tcp}
 import akka.stream.scaladsl.Tcp.{IncomingConnection, ServerBinding}
 import scala.concurrent.Future
@@ -16,7 +17,7 @@ object Main {
     val gameActor = system.spawn(GameActor.start, name = "game")
 
     val connections: Source[IncomingConnection, Future[ServerBinding]] =
-      Tcp().bind(host, port)
+      Tcp().bind(host, port, options = List(TcpNoDelay(on = true)))
 
     connections.runForeach { connection =>
       println(s"New connection from: ${connection.remoteAddress}")

@@ -16,6 +16,7 @@ object Main {
 
   def main(args: Array[String]): Unit = {
     val socket = new Socket("localhost", 10001)
+    socket.setTcpNoDelay(true)
     val inputStream = socket.getInputStream
     val outputStream = socket.getOutputStream
 
