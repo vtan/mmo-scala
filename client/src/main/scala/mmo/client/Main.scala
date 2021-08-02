@@ -3,7 +3,7 @@ package mmo.client
 import mmo.client.game.Game
 import mmo.client.graphics.{GlfwEvent, GlfwUtil, KeyboardEvent}
 import mmo.client.network.{CommandSenderRunnable, EventReceiverRunnable}
-import mmo.common.api.SessionEstablished
+import mmo.common.api.{PlayerCommand, SessionEstablished}
 import mmo.common.linear.V2
 
 import java.net.Socket
@@ -26,6 +26,7 @@ object Main {
     val commandSenderThread = new Thread(commandSender, "command-sender")
     eventReceiverThread.start()
     commandSenderThread.start()
+    commandSender.offer(PlayerCommand.InitiateSession())
 
     val window = GlfwUtil.createWindow(requestedWindowSize = V2(960, 720))
 
