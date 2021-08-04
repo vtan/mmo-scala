@@ -2,7 +2,7 @@ package mmo.client.game
 
 import mmo.client.graphics.{FpsCounter, GlfwEvent, GlfwUtil, KeyboardEvent, TileAtlas}
 import mmo.client.network.{CommandSender, EventReceiver}
-import mmo.common.api.{Direction, PlayerCommand, PlayerDisconnected, PlayerPositionChanged}
+import mmo.common.api.{Constants, Direction, PlayerCommand, PlayerDisconnected, PlayerPositionsChanged}
 import mmo.common.linear.V2
 
 import java.util.UUID
@@ -27,7 +27,6 @@ class Game(
   nvgFontFaceId(nvg, font)
 
   private val scaleFactor: Int = 3
-  private val tilePerSecond: Float = 4.0f
 
   private val playerStates = scala.collection.mutable.Map.empty[UUID, PlayerState]
 
@@ -85,7 +84,7 @@ class Game(
       if (id == playerId) {
         if (state.direction.isMoving) {
           val normal = state.direction.vector
-          val positionChange = (dt * tilePerSecond) *: normal
+          val positionChange = (dt * 1.0f * Constants.playerTilePerSecond) *: normal
           val newPosition = state.position + positionChange
           val hasCrossedTile = newPosition.map(_.toInt) - state.previousPosition.map(_.toInt) != V2.zero[Int]
           if (hasCrossedTile) {
@@ -105,14 +104,14 @@ class Game(
           if (now - state.receivedAt <= interpolationStartPeriod) {
             // Interpolating to predicted position in the near future to avoid jumping on a new update from server
             val t = (now - state.receivedAt) / interpolationStartPeriod
-            val target = state.lastPositionFromServer + (interpolationStartPeriod * tilePerSecond) *: state.direction.vector
+            val target = state.lastPositionFromServer + (interpolationStartPeriod * Constants.playerTilePerSecond) *: state.direction.vector
             val position = ((1 - t) *: state.smoothedPositionAtLastServerUpdate) + (t *: target)
             state.copy(
               position = position,
               previousPosition = state.smoothedPositionAtLastServerUpdate
             )
           } else {
-            val interpolatedMovement = ((now - state.receivedAt) * tilePerSecond) *: state.direction.vector
+            val interpolatedMovement = ((now - state.receivedAt) * Constants.playerTilePerSecond) *: state.direction.vector
             val position = state.lastPositionFromServer + interpolatedMovement
             state.copy(
               position = position,
@@ -128,11 +127,11 @@ class Game(
     var nextPlayerEvent = eventReceiver.poll()
     while (nextPlayerEvent != null) {
       nextPlayerEvent match {
-        case PlayerPositionChanged(positions) =>
+        case PlayerPositionsChanged(positions) =>
           positions.foreach { entry =>
             playerStates.updateWith(entry.id) {
               case Some(old) =>
-                if (entry.direction.isMoving) {
+                if (entry.direction.isMoving && !entry.force) {
                   if (entry.id == playerId) {
                     Some(old.copy(lastPositionFromServer = entry.position, receivedAt = now))
                   } else {
