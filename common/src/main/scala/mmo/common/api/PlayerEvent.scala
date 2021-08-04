@@ -14,6 +14,8 @@ object PlayerEvent {
 
 final case class SessionEstablished(id: UUID) extends PlayerEvent
 
+final case class Pong(clientTimeNanos: Long) extends PlayerEvent
+
 final case class PlayerPositionsChanged(positions: Seq[PlayerPositionsChanged.Entry]) extends PlayerEvent
 
 object PlayerPositionsChanged {

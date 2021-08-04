@@ -1,16 +1,18 @@
 package mmo.client.network
 
-import mmo.common.api.PlayerEvent
+import mmo.common.api.{PlayerEvent, Pong}
 
 import com.sksamuel.avro4s.AvroInputStream
 import java.io.{ByteArrayInputStream, InputStream}
 import java.nio.ByteBuffer
 import java.util.concurrent.{ArrayBlockingQueue, BlockingQueue}
+import java.util.concurrent.atomic.AtomicLong
 import scala.util.{Failure, Success, Try}
 
 trait EventReceiver {
   def poll(): PlayerEvent
   def take(): PlayerEvent
+  val lastPingNanos: AtomicLong
 }
 
 class EventReceiverRunnable(
@@ -18,6 +20,8 @@ class EventReceiverRunnable(
 ) extends Runnable with EventReceiver {
 
   private val eventQueue: BlockingQueue[PlayerEvent] = new ArrayBlockingQueue[PlayerEvent](256)
+
+  override val lastPingNanos: AtomicLong = new AtomicLong(0L)
 
   override def poll(): PlayerEvent =
     eventQueue.poll()
@@ -29,6 +33,7 @@ class EventReceiverRunnable(
     try {
       while (true) {
         deserializeEvent(inputStream) match {
+          case Success(Pong(clientTimeNanos)) => lastPingNanos.set(System.nanoTime() - clientTimeNanos)
           case Success(event) => eventQueue.add(event)
           case Failure(exception) => exception.printStackTrace()
         }

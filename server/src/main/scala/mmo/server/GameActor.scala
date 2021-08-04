@@ -1,6 +1,6 @@
 package mmo.server
 
-import mmo.common.api.{Direction, PlayerCommand, PlayerDisconnected, PlayerEvent, PlayerPositionsChanged, SessionEstablished}
+import mmo.common.api.{Direction, PlayerCommand, PlayerDisconnected, PlayerEvent, PlayerPositionsChanged, Pong, SessionEstablished}
 import mmo.common.linear.V2
 
 import akka.actor.typed.Behavior
@@ -40,6 +40,12 @@ object GameActor {
           newState.values.map(playerStateToEvent(_, force = true)).toSeq
         ))
         running(newState)
+
+      case PlayerCommandReceived(id, PlayerCommand.Ping(clientTimeNano)) =>
+        state.get(id).foreach { player =>
+          player.queue.offer(Pong(clientTimeNano))
+        }
+        Behaviors.same
 
       case PlayerCommandReceived(id, PlayerCommand.Move(position, direction)) =>
         state.get(id) match {

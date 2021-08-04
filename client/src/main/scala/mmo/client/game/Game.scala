@@ -2,7 +2,7 @@ package mmo.client.game
 
 import mmo.client.graphics.{FpsCounter, GlfwEvent, GlfwUtil, KeyboardEvent, TileAtlas}
 import mmo.client.network.{CommandSender, EventReceiver}
-import mmo.common.api.{Constants, Direction, PlayerCommand, PlayerDisconnected, PlayerPositionsChanged}
+import mmo.common.api.{Constants, Direction, PlayerCommand, PlayerDisconnected, PlayerPositionsChanged, Pong, SessionEstablished}
 import mmo.common.linear.V2
 
 import java.util.UUID
@@ -28,6 +28,8 @@ class Game(
 
   private val scaleFactor: Int = 3
 
+  private var lastPingSent: Float = 0.0f
+  private var lastPingRtt: String = ""
   private val playerStates = scala.collection.mutable.Map.empty[UUID, PlayerState]
 
   def run(): Unit = {
@@ -50,6 +52,12 @@ class Game(
   }
 
   private def update(events: List[GlfwEvent], now: Float, dt: Float): Unit = {
+    if (now - lastPingSent >= 1.0f) {
+      commandSender.offer(PlayerCommand.Ping(System.nanoTime()))
+      lastPingSent = now
+      lastPingRtt = s"RTT: ${(eventReceiver.lastPingNanos.get().toFloat * 1e-6f).toInt} ms"
+    }
+
     events.foreach {
       case KeyboardEvent(key, KeyboardEvent.Press) =>
         val direction = key match {
@@ -146,6 +154,9 @@ class Game(
           }
         case PlayerDisconnected(id) =>
           playerStates.remove(id)
+        case Pong(_) | SessionEstablished(_) =>
+          throw new RuntimeException("This should not happen")
+
       }
       nextPlayerEvent = eventReceiver.poll()
     }
@@ -191,6 +202,11 @@ class Game(
         nvgRect(nvg, x, y, size, size)
         nvgStroke(nvg)
     }
+
+    nvgBeginPath(nvg)
+    nvgFillColor(nvg, GlfwUtil.color(0, 0, 0))
+    nvgText(nvg, 0, 10, lastPingRtt)
+    nvgFill(nvg)
 
     nvgEndFrame(nvg)
   }

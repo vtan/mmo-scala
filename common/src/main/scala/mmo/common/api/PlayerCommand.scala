@@ -12,6 +12,8 @@ object PlayerCommand {
 
   final case class InitiateSession(magic: Long = InitiateSession.magic) extends PlayerCommand
 
+  final case class Ping(clientTimeNano: Long) extends PlayerCommand
+
   object InitiateSession {
     val magic: Long = 0x49c1_68b6_ec74_9f9dL
   }
