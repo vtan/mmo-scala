@@ -1,6 +1,6 @@
 package mmo.server
 
-import mmo.common.api.{PlayerCommand, PlayerEvent}
+import mmo.common.api.{Constants, PlayerCommand, PlayerEvent}
 
 import akka.actor.typed.ActorRef
 import akka.stream.scaladsl.{Flow, Framing, Source}
@@ -14,7 +14,6 @@ import java.util.UUID
 import scala.concurrent.duration._
 
 object SessionFlow {
-  private val maxMessageBytes = 512
 
   def create(gameActor: ActorRef[GameActor.Message])(implicit mat: Materializer): Flow[ByteString, ByteString, NotUsed] = {
     val id = UUID.randomUUID()
@@ -30,9 +29,12 @@ object SessionFlow {
       onFailureMessage = _ => GameActor.Disconnected(id)
     ).contramap(command => GameActor.PlayerCommandReceived(id, command))
 
+    val eventSerializer = new EventSerializer
+    val commandDeserializer = new CommandDeserializer
+
     Flow[ByteString]
-      .via(Framing.simpleFramingProtocolDecoder(maxMessageBytes))
-      .map(deserializeCommand)
+      .via(Framing.simpleFramingProtocolDecoder(Constants.maxMessageBytes))
+      .map(commandDeserializer.deserialize)
       .initialTimeout(timeout = 5.seconds)
       .statefulMapConcat(() => {
         var handshakeDone = false
@@ -50,28 +52,34 @@ object SessionFlow {
           }
         }
       })
-      .log("SessionFlow")
       .via(Flow.fromSinkAndSourceCoupled(incomingSink, outgoingSource))
-      .map(serializeEvent)
-      .via(Framing.simpleFramingProtocolEncoder(maxMessageBytes))
+      .map(eventSerializer.serialize)
+      .via(Framing.simpleFramingProtocolEncoder(Constants.maxMessageBytes))
   }
 
-  private def deserializeCommand(byteString: ByteString): PlayerCommand = {
-    val bytes = new ByteArrayInputStream(byteString.toArray)
-    val avro = AvroInputStream.binary[PlayerCommand].from(bytes).build(PlayerCommand.avroSchema)
-    val result = avro.iterator.toSeq match {
-      case result +: _ => result
-      case _ => throw new RuntimeException("Empty command message")
+  private class EventSerializer {
+    private val byteArrayOutputStream = new ByteArrayOutputStream()
+    private val avroOutputStream = AvroOutputStream.binary[PlayerEvent].to(byteArrayOutputStream).build()
+
+    def serialize(event: PlayerEvent): ByteString = {
+      byteArrayOutputStream.reset()
+      avroOutputStream.write(event)
+      avroOutputStream.flush()
+      ByteString(byteArrayOutputStream.toByteArray)
     }
-    avro.close()
-    result
   }
 
-  private def serializeEvent(event: PlayerEvent): ByteString = {
-    val byteArrayOutputStream = new ByteArrayOutputStream()
-    val avro = AvroOutputStream.binary[PlayerEvent].to(byteArrayOutputStream).build()
-    avro.write(event)
-    avro.close()
-    ByteString(byteArrayOutputStream.toByteArray)
+  private class CommandDeserializer {
+    private val payloadBuffer: Array[Byte] = Array.fill(Constants.maxMessageBytes)(0.toByte)
+    private val payloadInputStream = new ByteArrayInputStream(payloadBuffer)
+    private val avroInputStream = AvroInputStream.binary[PlayerCommand].from(payloadInputStream).build(PlayerCommand.avroSchema)
+
+    def deserialize(byteString: ByteString): PlayerCommand = {
+      val start = payloadBuffer.length - byteString.size
+      byteString.copyToArray(payloadBuffer, start)
+      payloadInputStream.reset()
+      payloadInputStream.skip(start.toLong)
+      avroInputStream.iterator.next()
+    }
   }
 }

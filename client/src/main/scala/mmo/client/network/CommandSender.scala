@@ -17,6 +17,10 @@ class CommandSenderRunnable(
 
   private val commandQueue: BlockingQueue[PlayerCommand] = new ArrayBlockingQueue[PlayerCommand](256)
 
+  private val byteArrayOutputStream = new ByteArrayOutputStream()
+  private val sizeBuffer = ByteBuffer.allocate(4)
+  private val avroOutputStream = AvroOutputStream.binary[PlayerCommand].to(byteArrayOutputStream).build()
+
   override def offer(command: PlayerCommand): Unit = {
     val _ = commandQueue.offer(command)
     ()
@@ -33,13 +37,12 @@ class CommandSenderRunnable(
     }
 
   private def writeCommand(command: PlayerCommand): Unit = {
-    val payloadStream = new ByteArrayOutputStream()
-    val avro = AvroOutputStream.binary[PlayerCommand].to(payloadStream).build()
-    avro.write(command)
-    avro.close()
-    val sizeBuffer = ByteBuffer.allocate(4)
-    sizeBuffer.putInt(payloadStream.size)
+    byteArrayOutputStream.reset()
+    val _ = sizeBuffer.clear()
+    avroOutputStream.write(command)
+    avroOutputStream.flush()
+    sizeBuffer.putInt(byteArrayOutputStream.size())
     outputStream.write(sizeBuffer.array())
-    payloadStream.writeTo(outputStream)
+    byteArrayOutputStream.writeTo(outputStream)
   }
 }

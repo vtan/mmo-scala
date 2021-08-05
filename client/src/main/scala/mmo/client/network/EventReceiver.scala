@@ -1,13 +1,12 @@
 package mmo.client.network
 
-import mmo.common.api.{PlayerEvent, Pong}
+import mmo.common.api.{Constants, PlayerEvent, Pong}
 
 import com.sksamuel.avro4s.AvroInputStream
 import java.io.{ByteArrayInputStream, InputStream}
 import java.nio.ByteBuffer
 import java.util.concurrent.{ArrayBlockingQueue, BlockingQueue}
 import java.util.concurrent.atomic.AtomicLong
-import scala.util.{Failure, Success, Try}
 
 trait EventReceiver {
   def poll(): PlayerEvent
@@ -21,6 +20,10 @@ class EventReceiverRunnable(
 
   private val eventQueue: BlockingQueue[PlayerEvent] = new ArrayBlockingQueue[PlayerEvent](256)
 
+  private val payloadBuffer: Array[Byte] = Array.fill(Constants.maxMessageBytes)(0.toByte)
+  private val payloadInputStream = new ByteArrayInputStream(payloadBuffer)
+  private val avroInputStream = AvroInputStream.binary[PlayerEvent].from(payloadInputStream).build(PlayerEvent.avroSchema)
+
   override val lastPingNanos: AtomicLong = new AtomicLong(0L)
 
   override def poll(): PlayerEvent =
@@ -33,24 +36,23 @@ class EventReceiverRunnable(
     try {
       while (true) {
         deserializeEvent(inputStream) match {
-          case Success(Pong(clientTimeNanos)) => lastPingNanos.set(System.nanoTime() - clientTimeNanos)
-          case Success(event) => eventQueue.add(event)
-          case Failure(exception) => exception.printStackTrace()
+          case Pong(clientTimeNanos) => lastPingNanos.set(System.nanoTime() - clientTimeNanos)
+          case event => eventQueue.add(event)
         }
       }
     } catch {
       case _: Throwable => () // TODO handle disconnect if not quitting
     }
 
-  private def deserializeEvent(inputStream: InputStream): Try[PlayerEvent] = {
-    val messageSize = ByteBuffer.wrap(inputStream.readNBytes(4)).getInt
-    val bytes = new ByteArrayInputStream(inputStream.readNBytes(messageSize))
-    val avro = AvroInputStream.binary[PlayerEvent].from(bytes).build(PlayerEvent.avroSchema)
-    val result = avro.tryIterator.toSeq match {
-      case result +: _ => result
-      case _ => Failure(new RuntimeException("Empty event message"))
+  private def deserializeEvent(inputStream: InputStream): PlayerEvent = {
+    val size = ByteBuffer.wrap(inputStream.readNBytes(4)).getInt
+    if (size > payloadBuffer.length) {
+      throw new RuntimeException(s"Received too large command: $size bytes")
     }
-    avro.close()
-    result
+    val start = payloadBuffer.length - size
+    val _ = inputStream.readNBytes(payloadBuffer, start, size)
+    payloadInputStream.reset()
+    payloadInputStream.skip(start.toLong)
+    avroInputStream.iterator.next()
   }
 }
