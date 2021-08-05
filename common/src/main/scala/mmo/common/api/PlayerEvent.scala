@@ -22,7 +22,13 @@ final case class Pong(clientTimeNanos: Long) extends PlayerEvent
 final case class PlayerPositionsChanged(positions: Seq[PlayerPositionsChanged.Entry]) extends PlayerEvent
 
 object PlayerPositionsChanged {
-  final case class Entry(id: UUID, position: V2[Float], direction: Direction, force: Boolean)
+  final case class Entry(
+    id: UUID,
+    position: V2[Float],
+    direction: Direction,
+    lookDirection: LookDirection,
+    force: Boolean
+  )
 }
 
 final case class PlayerDisconnected(id: UUID) extends PlayerEvent

@@ -2,7 +2,7 @@ package mmo.client.game
 
 import mmo.client.graphics.{FpsCounter, GlfwEvent, GlfwUtil, KeyboardEvent, TileAtlas}
 import mmo.client.network.{CommandSender, EventReceiver}
-import mmo.common.api.{Constants, Direction, GameMap, PlayerCommand, PlayerDisconnected, PlayerPositionsChanged, Pong, SessionEstablished}
+import mmo.common.api.{Constants, Direction, GameMap, LookDirection, PlayerCommand, PlayerDisconnected, PlayerPositionsChanged, Pong, SessionEstablished}
 import mmo.common.linear.V2
 
 import java.util.UUID
@@ -61,17 +61,17 @@ class Game(
 
     events.foreach {
       case KeyboardEvent(key, KeyboardEvent.Press) =>
-        val direction = key match {
-          case GLFW_KEY_RIGHT => Direction.right
-          case GLFW_KEY_LEFT => Direction.left
-          case GLFW_KEY_UP => Direction.up
-          case GLFW_KEY_DOWN => Direction.down
-          case _ => Direction.none
+        val (direction, lookDirection) = key match {
+          case GLFW_KEY_RIGHT => (Direction.right, LookDirection.right)
+          case GLFW_KEY_LEFT => (Direction.left, LookDirection.left)
+          case GLFW_KEY_UP => (Direction.up, LookDirection.up)
+          case GLFW_KEY_DOWN => (Direction.down, LookDirection.down)
+          case _ => (Direction.none, LookDirection.down)
         }
         if (direction.isMoving) {
           playerStates.updateWith(playerId)(_.map { state =>
-            commandSender.offer(PlayerCommand.Move(state.position, direction))
-            state.copy(direction = direction)
+            commandSender.offer(PlayerCommand.Move(state.position, direction, lookDirection))
+            state.copy(direction = direction, lookDirection = lookDirection)
           })
         }
 
@@ -80,7 +80,7 @@ class Game(
           case GLFW_KEY_RIGHT | GLFW_KEY_LEFT | GLFW_KEY_UP | GLFW_KEY_DOWN =>
             playerStates.updateWith(playerId)(_.map { state =>
               val direction = Direction.none
-              commandSender.offer(PlayerCommand.Move(state.position, direction))
+              commandSender.offer(PlayerCommand.Move(state.position, direction, state.lookDirection))
               state.copy(direction = direction)
             })
           case _ => ()
@@ -97,16 +97,13 @@ class Game(
           val newPosition = state.position + positionChange
           val hitbox = Constants.playerHitbox.translate(newPosition)
           if (gameMap.isRectWalkable(hitbox)) {
-            val hasCrossedTile = newPosition.map(_.floor.toInt) - state.previousPosition.map(_.floor.toInt) != V2.zero[Int]
+            val hasCrossedTile = newPosition.map(_.floor.toInt) - state.position.map(_.floor.toInt) != V2.zero[Int]
             if (hasCrossedTile) {
-              commandSender.offer(PlayerCommand.Move(newPosition, state.direction))
+              commandSender.offer(PlayerCommand.Move(newPosition, state.direction, state.lookDirection))
             }
-            state.copy(
-              position = newPosition,
-              previousPosition = state.position
-            )
+            state.copy(position = newPosition)
           } else {
-            commandSender.offer(PlayerCommand.Move(state.position, Direction.none))
+            commandSender.offer(PlayerCommand.Move(state.position, Direction.none, state.lookDirection))
             state.copy(direction = Direction.none)
           }
         } else {
@@ -120,17 +117,11 @@ class Game(
             val t = (now - state.receivedAt) / interpolationStartPeriod
             val target = state.lastPositionFromServer + (interpolationStartPeriod * Constants.playerTilePerSecond) *: state.direction.vector
             val position = ((1 - t) *: state.smoothedPositionAtLastServerUpdate) + (t *: target)
-            state.copy(
-              position = position,
-              previousPosition = state.smoothedPositionAtLastServerUpdate
-            )
+            state.copy(position = position)
           } else {
             val interpolatedMovement = ((now - state.receivedAt) * Constants.playerTilePerSecond) *: state.direction.vector
             val position = state.lastPositionFromServer + interpolatedMovement
-            state.copy(
-              position = position,
-              previousPosition = state.lastPositionFromServer
-            )
+            state.copy(position = position)
           }
         } else {
           state
@@ -142,20 +133,43 @@ class Game(
     while (nextPlayerEvent != null) {
       nextPlayerEvent match {
         case PlayerPositionsChanged(positions) =>
-          positions.foreach { entry =>
-            playerStates.updateWith(entry.id) {
+          positions.foreach { update =>
+            playerStates.updateWith(update.id) {
               case Some(old) =>
-                if (entry.direction.isMoving && !entry.force) {
-                  if (entry.id == playerId) {
-                    Some(old.copy(lastPositionFromServer = entry.position, receivedAt = now))
+                if (update.direction.isMoving && !update.force) {
+                  if (update.id == playerId) {
+                    Some(old.copy(
+                      lastPositionFromServer = update.position,
+                      receivedAt = now
+                    ))
                   } else {
-                    Some(old.copy(lastPositionFromServer = entry.position, smoothedPositionAtLastServerUpdate = old.position, direction = entry.direction, receivedAt = now))
+                    Some(old.copy(
+                      lastPositionFromServer = update.position,
+                      smoothedPositionAtLastServerUpdate = old.position,
+                      direction = update.direction,
+                      lookDirection = update.lookDirection,
+                      receivedAt = now
+                    ))
                   }
                 } else {
-                  Some(old.copy(position = entry.position, previousPosition = old.previousPosition, lastPositionFromServer = entry.position, smoothedPositionAtLastServerUpdate = old.position, direction = entry.direction, receivedAt = now))
+                  Some(PlayerState(
+                    position = update.position,
+                    lastPositionFromServer = update.position,
+                    smoothedPositionAtLastServerUpdate = old.position,
+                    direction = update.direction,
+                    lookDirection = update.lookDirection,
+                    receivedAt = now
+                  ))
                 }
               case None =>
-                Some(PlayerState(position = entry.position, previousPosition = entry.position, lastPositionFromServer = entry.position, smoothedPositionAtLastServerUpdate = entry.position, direction = entry.direction, receivedAt = now))
+                Some(PlayerState(
+                  position = update.position,
+                  lastPositionFromServer = update.position,
+                  smoothedPositionAtLastServerUpdate = update.position,
+                  direction = update.direction,
+                  lookDirection = update.lookDirection,
+                  receivedAt = now
+                ))
             }
           }
         case PlayerDisconnected(id) =>
@@ -194,7 +208,7 @@ class Game(
         tileAtlas.render(
           nvg,
           screenPosition = (scaleFactor * TileAtlas.tileSize).toFloat *: (player.position - V2(0, 1)),
-          tilePosition = V2(player.directionTileIndex, 0),
+          tilePosition = V2(player.lookDirection.spriteIndex, 0),
           tileCount = V2(1, 2),
           scaleFactor = scaleFactor
         )

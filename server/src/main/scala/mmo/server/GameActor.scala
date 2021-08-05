@@ -1,6 +1,6 @@
 package mmo.server
 
-import mmo.common.api.{Constants, Direction, GameMap, PlayerCommand, PlayerDisconnected, PlayerEvent, PlayerPositionsChanged, Pong, SessionEstablished}
+import mmo.common.api.{Constants, Direction, GameMap, LookDirection, PlayerCommand, PlayerDisconnected, PlayerEvent, PlayerPositionsChanged, Pong, SessionEstablished}
 import mmo.common.linear.V2
 
 import akka.actor.typed.Behavior
@@ -12,6 +12,7 @@ final case class PlayerState(
   id: UUID,
   position: V2[Float],
   direction: Direction,
+  lookDirection: LookDirection,
   queue: SourceQueueWithComplete[PlayerEvent],
   receivedAtNano: Long
 )
@@ -31,7 +32,7 @@ object GameActor {
     Behaviors.receiveMessage {
 
       case Connected(id, queue) =>
-        val player = PlayerState(id, V2.zero, Direction.none, queue, System.nanoTime())
+        val player = PlayerState(id, V2.zero, Direction.none, LookDirection.down, queue, System.nanoTime())
         broadcastPlayerPosition(player, state)
 
         val newState = state.updated(player.id, player)
@@ -47,7 +48,7 @@ object GameActor {
         }
         Behaviors.same
 
-      case PlayerCommandReceived(id, PlayerCommand.Move(position, direction)) =>
+      case PlayerCommandReceived(id, PlayerCommand.Move(position, direction, lookDirection)) =>
         state.get(id) match {
           case Some(existing) =>
             val predictedPosition = {
@@ -71,6 +72,7 @@ object GameActor {
               } else {
                 direction
               },
+              lookDirection = lookDirection,
               receivedAtNano = System.nanoTime()
             )
             val newState = state.updated(newPlayer.id, newPlayer)
@@ -105,7 +107,7 @@ object GameActor {
     state.values.foreach(_.queue.offer(event))
 
   private def playerStateToEvent(player: PlayerState, force: Boolean): PlayerPositionsChanged.Entry =
-    PlayerPositionsChanged.Entry(player.id, player.position, player.direction, force)
+    PlayerPositionsChanged.Entry(player.id, player.position, player.direction, player.lookDirection, force)
 
   private val gameMap = GameMap(
     width = 16,

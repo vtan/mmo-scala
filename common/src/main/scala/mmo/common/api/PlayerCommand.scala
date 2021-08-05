@@ -20,6 +20,7 @@ object PlayerCommand {
 
   final case class Move(
     position: V2[Float],
-    direction: Direction
+    direction: Direction,
+    lookDirection: LookDirection
   ) extends PlayerCommand
 }
