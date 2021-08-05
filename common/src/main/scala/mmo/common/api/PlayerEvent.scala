@@ -12,7 +12,10 @@ object PlayerEvent {
   val avroSchema: Schema = AvroSchema[PlayerEvent]
 }
 
-final case class SessionEstablished(id: UUID) extends PlayerEvent
+final case class SessionEstablished(
+  id: UUID,
+  gameMap: GameMap
+) extends PlayerEvent
 
 final case class Pong(clientTimeNanos: Long) extends PlayerEvent
 

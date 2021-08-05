@@ -1,6 +1,6 @@
 package mmo.server
 
-import mmo.common.api.{Direction, PlayerCommand, PlayerDisconnected, PlayerEvent, PlayerPositionsChanged, Pong, SessionEstablished}
+import mmo.common.api.{Constants, Direction, GameMap, PlayerCommand, PlayerDisconnected, PlayerEvent, PlayerPositionsChanged, Pong, SessionEstablished}
 import mmo.common.linear.V2
 
 import akka.actor.typed.Behavior
@@ -35,7 +35,7 @@ object GameActor {
         broadcastPlayerPosition(player, state)
 
         val newState = state.updated(player.id, player)
-        queue.offer(SessionEstablished(id))
+        queue.offer(SessionEstablished(id, gameMap))
         queue.offer(PlayerPositionsChanged(
           newState.values.map(playerStateToEvent(_, force = true)).toSeq
         ))
@@ -54,21 +54,27 @@ object GameActor {
               val timeElapsed = (System.nanoTime() - existing.receivedAtNano).toFloat * 1e-9f
               existing.position + timeElapsed *: existing.direction.vector
             }
-            val isPositionInvalid = !(position.x >= 0 && position.y >= 0 && position.x < 32 && position.y < 32)
-            val isPostitionFarFromPredicted = (predictedPosition - position).lengthSq >= positionPredictionThreshold
+            val movedToObstacle = !gameMap.isRectWalkable(Constants.playerHitbox.translate(position))
+            val movedFarFromLastPosition = (position - existing.position).lengthSq >= 2
+            val movedFarFromPredicted = (predictedPosition - position).lengthSq >= positionPredictionThreshold
+            val force = movedToObstacle || movedFarFromLastPosition || movedFarFromPredicted
             val newPlayer = existing.copy(
-              position = if (isPositionInvalid) {
+              position = if (movedToObstacle || movedFarFromLastPosition) {
                 existing.position
-              } else if (isPostitionFarFromPredicted) {
+              } else if (movedFarFromPredicted) {
                 predictedPosition
               } else {
                 position
               },
-              direction = direction,
+              direction = if (movedToObstacle || movedFarFromLastPosition) {
+                Direction.none
+              } else {
+                direction
+              },
               receivedAtNano = System.nanoTime()
             )
             val newState = state.updated(newPlayer.id, newPlayer)
-            broadcastPlayerPosition(newPlayer, newState, force = isPositionInvalid || isPostitionFarFromPredicted)
+            broadcastPlayerPosition(newPlayer, newState, force = force)
             running(newState)
           case None =>
             Behaviors.same
@@ -100,4 +106,20 @@ object GameActor {
 
   private def playerStateToEvent(player: PlayerState, force: Boolean): PlayerPositionsChanged.Entry =
     PlayerPositionsChanged.Entry(player.id, player.position, player.direction, force)
+
+  private val gameMap = GameMap(
+    width = 16,
+    height = 16,
+    tiles = Array.tabulate(16 * 16) { i =>
+      val x = i % 16
+      val y = i / 16
+      val grass = GameMap.Tile(0, true)
+      val water = GameMap.Tile(1, false)
+      if (x % 4 >= 2 && y % 4 >= 2 && (x / 4) % 3 != 0 && (y / 4) % 4 != 0) {
+        water
+      } else {
+        grass
+      }
+    }
+  )
 }

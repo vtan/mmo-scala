@@ -2,7 +2,7 @@ package mmo.client.game
 
 import mmo.client.graphics.{FpsCounter, GlfwEvent, GlfwUtil, KeyboardEvent, TileAtlas}
 import mmo.client.network.{CommandSender, EventReceiver}
-import mmo.common.api.{Constants, Direction, PlayerCommand, PlayerDisconnected, PlayerPositionsChanged, Pong, SessionEstablished}
+import mmo.common.api.{Constants, Direction, GameMap, PlayerCommand, PlayerDisconnected, PlayerPositionsChanged, Pong, SessionEstablished}
 import mmo.common.linear.V2
 
 import java.util.UUID
@@ -15,6 +15,7 @@ import org.lwjgl.opengl.GL11C._
 class Game(
   window: Long,
   playerId: UUID,
+  gameMap: GameMap,
   glfwEventsRef: AtomicReference[List[GlfwEvent]],
   eventReceiver: EventReceiver,
   commandSender: CommandSender
@@ -94,18 +95,23 @@ class Game(
           val normal = state.direction.vector
           val positionChange = (dt * 1.0f * Constants.playerTilePerSecond) *: normal
           val newPosition = state.position + positionChange
-          val hasCrossedTile = newPosition.map(_.toInt) - state.previousPosition.map(_.toInt) != V2.zero[Int]
-          if (hasCrossedTile) {
-            commandSender.offer(PlayerCommand.Move(newPosition, state.direction))
+          val hitbox = Constants.playerHitbox.translate(newPosition)
+          if (gameMap.isRectWalkable(hitbox)) {
+            val hasCrossedTile = newPosition.map(_.floor.toInt) - state.previousPosition.map(_.floor.toInt) != V2.zero[Int]
+            if (hasCrossedTile) {
+              commandSender.offer(PlayerCommand.Move(newPosition, state.direction))
+            }
+            state.copy(
+              position = newPosition,
+              previousPosition = state.position
+            )
+          } else {
+            commandSender.offer(PlayerCommand.Move(state.position, Direction.none))
+            state.copy(direction = Direction.none)
           }
-          state.copy(
-            position = newPosition,
-            previousPosition = state.position
-          )
         } else {
           state
         }
-
       } else {
         if (state.direction.isMoving) {
           val interpolationStartPeriod = 0.5f
@@ -154,7 +160,7 @@ class Game(
           }
         case PlayerDisconnected(id) =>
           playerStates.remove(id)
-        case Pong(_) | SessionEstablished(_) =>
+        case _: Pong | _: SessionEstablished =>
           throw new RuntimeException("This should not happen")
 
       }
@@ -168,17 +174,18 @@ class Game(
 
     nvgBeginFrame(nvg, screenSize.x, screenSize.y, pixelRatio)
 
-    val (grass, water) = (V2(0, 2), V2(1, 2))
-    (0 to 32).foreach { x =>
-      (0 to 32).foreach { y =>
-        val tile = if ((x - 12) * (x - 12) + (y - 6) * (y - 6) <= 64) water else grass
-        tileAtlas.render(
-          nvg,
-          screenPosition = ((scaleFactor * TileAtlas.tileSize) *: V2(x, y)).map(_.toFloat),
-          tilePosition = tile,
-          tileCount = V2(1, 1),
-          scaleFactor = scaleFactor
-        )
+    (0 to gameMap.width).foreach { x =>
+      (0 to gameMap.height).foreach { y =>
+        gameMap.tile(x, y).foreach { tile =>
+          val tilePosition = V2(tile.tileIndex, 2)
+          tileAtlas.render(
+            nvg,
+            screenPosition = ((scaleFactor * TileAtlas.tileSize) *: V2(x, y)).map(_.toFloat),
+            tilePosition = tilePosition,
+            tileCount = V2(1, 1),
+            scaleFactor = scaleFactor
+          )
+        }
       }
     }
 
@@ -196,10 +203,10 @@ class Game(
     nvgStrokeColor(nvg, GlfwUtil.color(0, 0, 0))
     playerStates.foreach {
       case (_, player) =>
-        val V2(x, y) = (scaleFactor * TileAtlas.tileSize).toFloat *: player.lastPositionFromServer
-        val size = (scaleFactor * TileAtlas.tileSize).toFloat
+        val V2(x, y) = (scaleFactor * TileAtlas.tileSize).toFloat *: (player.lastPositionFromServer + Constants.playerHitbox.xy)
+        val V2(w, h) = (scaleFactor * TileAtlas.tileSize).toFloat *: Constants.playerHitbox.wh
         nvgBeginPath(nvg)
-        nvgRect(nvg, x, y, size, size)
+        nvgRect(nvg, x, y, w, h)
         nvgStroke(nvg)
     }
 

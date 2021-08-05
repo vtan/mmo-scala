@@ -50,8 +50,8 @@ object Main {
       }
     )
 
-    val SessionEstablished(playerId) = eventReceiver.take()
-    new Game(window, playerId, eventsRef, eventReceiver, commandSender).run()
+    val SessionEstablished(playerId, gameMap) = eventReceiver.take()
+    new Game(window, playerId, gameMap, eventsRef, eventReceiver, commandSender).run()
 
     eventReceiverThread.interrupt()
     commandSenderThread.interrupt()
