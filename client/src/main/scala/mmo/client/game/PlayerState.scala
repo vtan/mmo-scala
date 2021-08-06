@@ -9,5 +9,19 @@ final case class PlayerState(
   smoothedPositionAtLastServerUpdate: V2[Float],
   direction: Direction,
   lookDirection: LookDirection,
-  receivedAt: Float
-)
+  receivedAt: Float,
+  directionLastChangedAt: Float
+) {
+  def spriteIndexAt(time: Float): Int =
+    if (direction.isMoving) {
+      val offset = (((time - directionLastChangedAt) / 0.15f) % 4).toInt match {
+        case 0 => 1
+        case 1 => 0
+        case 2 => 2
+        case 3 => 0
+      }
+      lookDirection.spriteIndex + offset
+    } else {
+      lookDirection.spriteIndex
+    }
+}

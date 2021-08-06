@@ -34,6 +34,7 @@ class Game(
   private var lastPingSent: Float = 0.0f
   private var lastPingRtt: String = ""
   private val playerStates = scala.collection.mutable.Map.empty[UUID, PlayerState]
+  private var debugShowHitbox: Boolean = false
 
   def run(): Unit = {
     val fpsCounter = new FpsCounter
@@ -44,7 +45,7 @@ class Game(
       val events = glfwEventsRef.getAndSet(Nil).reverse
       update(events, now.toFloat, (now - lastFrameTime).toFloat)
 
-      render()
+      render(now.toFloat)
       glfwSwapBuffers(window)
       glfwPollEvents()
 
@@ -76,6 +77,9 @@ class Game(
             state.copy(direction = direction, lookDirection = lookDirection)
           })
         }
+
+      case KeyboardEvent(GLFW_KEY_F2, KeyboardEvent.Release) =>
+        debugShowHitbox = !debugShowHitbox
 
       case KeyboardEvent(key, KeyboardEvent.Release) =>
         key match {
@@ -142,7 +146,8 @@ class Game(
                   if (update.id == playerId) {
                     Some(old.copy(
                       lastPositionFromServer = update.position,
-                      receivedAt = now
+                      receivedAt = now,
+                      directionLastChangedAt = if (old.lookDirection == update.lookDirection) old.directionLastChangedAt else now
                     ))
                   } else {
                     Some(old.copy(
@@ -150,7 +155,8 @@ class Game(
                       smoothedPositionAtLastServerUpdate = old.position,
                       direction = update.direction,
                       lookDirection = update.lookDirection,
-                      receivedAt = now
+                      receivedAt = now,
+                      directionLastChangedAt = if (old.lookDirection == update.lookDirection) old.directionLastChangedAt else now
                     ))
                   }
                 } else {
@@ -160,7 +166,8 @@ class Game(
                     smoothedPositionAtLastServerUpdate = old.position,
                     direction = update.direction,
                     lookDirection = update.lookDirection,
-                    receivedAt = now
+                    receivedAt = now,
+                    directionLastChangedAt = if (old.lookDirection == update.lookDirection) old.directionLastChangedAt else now
                   ))
                 }
               case None =>
@@ -170,7 +177,8 @@ class Game(
                   smoothedPositionAtLastServerUpdate = update.position,
                   direction = update.direction,
                   lookDirection = update.lookDirection,
-                  receivedAt = now
+                  receivedAt = now,
+                  directionLastChangedAt = now
                 ))
             }
           }
@@ -184,7 +192,7 @@ class Game(
     }
   }
 
-  private def render(): Unit = {
+  private def render(now: Float): Unit = {
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)
 
@@ -216,7 +224,7 @@ class Game(
           tileAtlas.render(
             nvg,
             rectOnScreen = screenRect,
-            positionOnTexture = V2(player.lookDirection.spriteIndex, 0),
+            positionOnTexture = V2(player.spriteIndexAt(now), 0),
             scaleFactor = windowGeometry.scaleFactor
           )
 
@@ -225,16 +233,18 @@ class Game(
         }
     }
 
-    nvgStrokeColor(nvg, GlfwUtil.color(1, 1, 1))
-    playerStates.foreach {
-      case (_, player) =>
-        val hitbox = Constants.playerHitbox.translate(player.lastPositionFromServer)
-        camera.transformVisibleRect(hitbox).foreach {
-          case Rect(V2(x, y), V2(w, h)) =>
-            nvgBeginPath(nvg)
-            nvgRect(nvg, x, y, w, h)
-            nvgStroke(nvg)
-        }
+    if (debugShowHitbox) {
+      nvgStrokeColor(nvg, GlfwUtil.color(1, 1, 1, 0.6))
+      playerStates.foreach {
+        case (_, player) =>
+          val hitbox = Constants.playerHitbox.translate(player.lastPositionFromServer)
+          camera.transformVisibleRect(hitbox).foreach {
+            case Rect(V2(x, y), V2(w, h)) =>
+              nvgBeginPath(nvg)
+              nvgRect(nvg, x, y, w, h)
+              nvgStroke(nvg)
+          }
+      }
     }
 
     nvgTextAlign(nvg, NVG_ALIGN_TOP | NVG_ALIGN_LEFT)
@@ -245,9 +255,9 @@ class Game(
 
   private def renderText(nvg: Long, x: Float, y: Float, str: String): Unit = {
     nvgFillColor(nvg, GlfwUtil.color(0, 0, 0, 0.7))
-    nvgText(nvg, x + 1, y + 1, str)
+    val _ = nvgText(nvg, x + 1, y + 1, str)
 
     nvgFillColor(nvg, GlfwUtil.color(1, 1, 1))
-    nvgText(nvg, x, y, str)
+    val _ = nvgText(nvg, x, y, str)
   }
 }

@@ -15,7 +15,12 @@ import org.lwjgl.opengl._
 object Main {
 
   def main(args: Array[String]): Unit = {
-    val socket = new Socket("localhost", 10001)
+    val socket = {
+      val host = sys.env.getOrElse("MMO_HOST", "localhost")
+      val port = sys.env.get("MMO_PORT").flatMap(_.toIntOption).getOrElse(10001)
+      println(s"Connecting to $host:$port")
+      new Socket(host, port)
+    }
     socket.setTcpNoDelay(true)
     val inputStream = socket.getInputStream
     val outputStream = socket.getOutputStream
