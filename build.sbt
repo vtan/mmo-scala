@@ -51,9 +51,15 @@ lazy val server = (project in file("server")).dependsOn(common).settings {
       "com.typesafe.akka" %% "akka-actor-typed" % akkaVersion,
       "com.typesafe.akka" %% "akka-stream-typed" % akkaVersion,
       "ch.qos.logback" % "logback-classic" % "1.2.3"
-  ),
-  mainClass := Some("mmo.server.Main"),
+    ),
+    mainClass := Some("mmo.server.Main"),
     run / fork := true,
+    assembly / assemblyMergeStrategy := {
+      case "module-info.class" => MergeStrategy.discard
+      case x =>
+        val oldStrategy = (assembly / assemblyMergeStrategy).value
+        oldStrategy(x)
+    }
   )
 }
 
