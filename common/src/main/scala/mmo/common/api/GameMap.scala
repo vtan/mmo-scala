@@ -7,6 +7,8 @@ final case class GameMap(
   height: Int,
   tiles: Array[GameMap.Tile]
 ) {
+  val size: V2[Int] = V2(width, height)
+
   def tile(x: Int, y: Int): Option[GameMap.Tile] =
     if (x >= 0 && x < width && y >= 0 && y < height) {
       Some(tiles(x + y * width))

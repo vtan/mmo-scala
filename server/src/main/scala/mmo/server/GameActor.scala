@@ -111,8 +111,8 @@ object GameActor {
 
   private val gameMap = GameMap(
     width = 16,
-    height = 16,
-    tiles = Array.tabulate(16 * 16) { i =>
+    height = 32,
+    tiles = Array.tabulate(16 * 32) { i =>
       val x = i % 16
       val y = i / 16
       val grass = GameMap.Tile(0, true)

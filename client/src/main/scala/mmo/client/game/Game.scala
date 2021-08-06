@@ -3,7 +3,7 @@ package mmo.client.game
 import mmo.client.graphics.{FpsCounter, GlfwEvent, GlfwUtil, KeyboardEvent, TileAtlas}
 import mmo.client.network.{CommandSender, EventReceiver}
 import mmo.common.api.{Constants, Direction, GameMap, LookDirection, PlayerCommand, PlayerDisconnected, PlayerPositionsChanged, Pong, SessionEstablished}
-import mmo.common.linear.V2
+import mmo.common.linear.{Rect, V2}
 
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
@@ -21,13 +21,15 @@ class Game(
   commandSender: CommandSender
 ) {
   private val nvg: Long = nvgCreate(0)
-  private val (screenSize: V2[Float], pixelRatio: Float) = GlfwUtil.getWindowGeometry(window)
+  private val (windowSize: V2[Float], pixelRatio: Float) = GlfwUtil.getWindowGeometry(window)
+  private val windowGeometry = WindowGeometry(
+    windowSize = windowSize,
+    scaleFactor = 3
+  )
 
   private val tileAtlas: TileAtlas = TileAtlas.loadFromFile(nvg, "assets/tileset.png")
   private val font: Int = nvgCreateFont(nvg, "Roboto", "assets/roboto/Roboto-Regular.ttf")
   nvgFontFaceId(nvg, font)
-
-  private val scaleFactor: Int = 3
 
   private var lastPingSent: Float = 0.0f
   private var lastPingRtt: String = ""
@@ -186,49 +188,66 @@ class Game(
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)
 
-    nvgBeginFrame(nvg, screenSize.x, screenSize.y, pixelRatio)
+    nvgBeginFrame(nvg, windowSize.x, windowSize.y, pixelRatio)
+    nvgFontSize(nvg, 20)
 
-    (0 to gameMap.width).foreach { x =>
-      (0 to gameMap.height).foreach { y =>
+    val camera = Camera.centerOn(playerStates.get(playerId).fold(V2.zero[Float])(_.position), gameMap.size, windowGeometry)
+
+    camera.visibleTiles.foreach {
+      case V2(x, y) =>
         gameMap.tile(x, y).foreach { tile =>
-          val tilePosition = V2(tile.tileIndex, 2)
+          val tileRect = Rect(xy = V2(x.toFloat, y.toFloat), wh = V2(1.0f, 1.0f))
+          val texturePosition = V2(tile.tileIndex, 2)
           tileAtlas.render(
             nvg,
-            screenPosition = ((scaleFactor * TileAtlas.tileSize) *: V2(x, y)).map(_.toFloat),
-            tilePosition = tilePosition,
-            tileCount = V2(1, 1),
-            scaleFactor = scaleFactor
+            rectOnScreen = camera.transformRect(tileRect),
+            positionOnTexture = texturePosition,
+            scaleFactor = windowGeometry.scaleFactor
           )
         }
-      }
     }
 
+    nvgTextAlign(nvg, NVG_ALIGN_TOP | NVG_ALIGN_CENTER)
+    playerStates.foreach {
+      case (id, player) =>
+        val sizeInTiles = V2(1, 2)
+        val playerRect = Rect(xy = player.position - V2(0.0f, 1.0f), wh = sizeInTiles.map(_.toFloat))
+        camera.transformVisibleRect(playerRect).foreach { screenRect =>
+          tileAtlas.render(
+            nvg,
+            rectOnScreen = screenRect,
+            positionOnTexture = V2(player.lookDirection.spriteIndex, 0),
+            scaleFactor = windowGeometry.scaleFactor
+          )
+
+          val playerNamePoint = camera.transformPoint(player.position + V2(0.5f, -1.2f))
+          renderText(nvg, playerNamePoint.x, playerNamePoint.y, id.toString.take(4))
+        }
+    }
+
+    nvgStrokeColor(nvg, GlfwUtil.color(1, 1, 1))
     playerStates.foreach {
       case (_, player) =>
-        tileAtlas.render(
-          nvg,
-          screenPosition = (scaleFactor * TileAtlas.tileSize).toFloat *: (player.position - V2(0, 1)),
-          tilePosition = V2(player.lookDirection.spriteIndex, 0),
-          tileCount = V2(1, 2),
-          scaleFactor = scaleFactor
-        )
+        val hitbox = Constants.playerHitbox.translate(player.lastPositionFromServer)
+        camera.transformVisibleRect(hitbox).foreach {
+          case Rect(V2(x, y), V2(w, h)) =>
+            nvgBeginPath(nvg)
+            nvgRect(nvg, x, y, w, h)
+            nvgStroke(nvg)
+        }
     }
 
-    nvgStrokeColor(nvg, GlfwUtil.color(0, 0, 0))
-    playerStates.foreach {
-      case (_, player) =>
-        val V2(x, y) = (scaleFactor * TileAtlas.tileSize).toFloat *: (player.lastPositionFromServer + Constants.playerHitbox.xy)
-        val V2(w, h) = (scaleFactor * TileAtlas.tileSize).toFloat *: Constants.playerHitbox.wh
-        nvgBeginPath(nvg)
-        nvgRect(nvg, x, y, w, h)
-        nvgStroke(nvg)
-    }
-
-    nvgBeginPath(nvg)
-    nvgFillColor(nvg, GlfwUtil.color(0, 0, 0))
-    nvgText(nvg, 0, 10, lastPingRtt)
-    nvgFill(nvg)
+    nvgTextAlign(nvg, NVG_ALIGN_TOP | NVG_ALIGN_LEFT)
+    renderText(nvg, 0, 0, lastPingRtt)
 
     nvgEndFrame(nvg)
+  }
+
+  private def renderText(nvg: Long, x: Float, y: Float, str: String): Unit = {
+    nvgFillColor(nvg, GlfwUtil.color(0, 0, 0, 0.7))
+    nvgText(nvg, x + 1, y + 1, str)
+
+    nvgFillColor(nvg, GlfwUtil.color(1, 1, 1))
+    nvgText(nvg, x, y, str)
   }
 }

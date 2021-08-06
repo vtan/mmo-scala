@@ -25,6 +25,9 @@ final case class V2[@specialized(Int, Float, Double) T](x: T, y: T) {
 
   def map[U](f: T => U): V2[U] =
     V2(f(x), f(y))
+
+  def zipWith[U, V](rhs: V2[U])(f: (T, U) => V): V2[V] =
+    V2(f(x, rhs.x), f(y, rhs.y))
 }
 
 object V2 {

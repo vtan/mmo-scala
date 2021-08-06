@@ -1,8 +1,8 @@
 package mmo.client.graphics
 
-import mmo.common.linear.V2
+import mmo.common.linear.{Rect, V2}
 
-import org.lwjgl.nanovg.NanoVG.{nvgBeginPath, nvgCreateImage, nvgFill, nvgFillPaint, nvgImagePattern, nvgImageSize, nvgRect, NVG_IMAGE_NEAREST}
+import org.lwjgl.nanovg.NanoVG._
 import org.lwjgl.nanovg.NVGPaint
 
 final case class TileAtlas(
@@ -11,32 +11,27 @@ final case class TileAtlas(
   imageHeight: Int
 ) {
 
-  def render(nvg: Long, screenPosition: V2[Float], tilePosition: V2[Int], tileCount: V2[Int], scaleFactor: Int): Unit = {
+  def render(nvg: Long, rectOnScreen: Rect[Float], positionOnTexture: V2[Int], scaleFactor: Int): Unit = {
     // See https://github.com/memononen/nanovg/issues/348
 
-    val V2(rectX, rectY) = screenPosition
-    val V2(tileX, tileY) = tilePosition * tileCount
-    val tileW = scaleFactor * TileAtlas.tileSize
-    val tileH = scaleFactor * TileAtlas.tileSize
-    val patternW = scaleFactor * imageWidth
-    val patternH = scaleFactor * imageHeight
-
+    val textureOffset = ((scaleFactor * TileAtlas.tileSize) *: positionOnTexture).map(_.toFloat)
+    val patternPosition = rectOnScreen.xy - textureOffset
     val _ = nvgImagePattern(
       nvg,
-      rectX - tileX * tileW,
-      rectY - tileY * tileH,
-      patternW.toFloat,
-      patternH.toFloat,
+      patternPosition.x,
+      patternPosition.y,
+      (scaleFactor * imageWidth).toFloat,
+      (scaleFactor * imageHeight).toFloat,
       0, imageHandle, 1.0f, TileAtlas.paint
     )
     nvgFillPaint(nvg, TileAtlas.paint)
     nvgBeginPath(nvg)
     nvgRect(
       nvg,
-      rectX,
-      rectY,
-      (tileCount.x * tileW).toFloat,
-      (tileCount.y * tileH).toFloat
+      rectOnScreen.xy.x,
+      rectOnScreen.xy.y,
+      rectOnScreen.wh.x,
+      rectOnScreen.wh.y
     )
     nvgFill(nvg)
   }
