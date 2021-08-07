@@ -85,9 +85,13 @@ class Game(
         key match {
           case GLFW_KEY_RIGHT | GLFW_KEY_LEFT | GLFW_KEY_UP | GLFW_KEY_DOWN =>
             playerStates.updateWith(playerId)(_.map { state =>
-              val direction = Direction.none
-              commandSender.offer(PlayerCommand.Move(state.position, direction, state.lookDirection))
-              state.copy(direction = direction)
+              if (state.direction.isMoving) {
+                val direction = Direction.none
+                commandSender.offer(PlayerCommand.Move(state.position, direction, state.lookDirection))
+                state.copy(direction = direction)
+              } else {
+                state
+              }
             })
           case _ => ()
         }
@@ -142,26 +146,25 @@ class Game(
           positions.foreach { update =>
             playerStates.updateWith(update.id) {
               case Some(old) =>
-                if (update.direction.isMoving && !update.force) {
-                  if (update.id == playerId) {
+                if (update.id == playerId) {
+                  if (update.force) {
                     Some(old.copy(
                       lastPositionFromServer = update.position,
+                      direction = update.direction,
+                      lookDirection = update.lookDirection,
                       receivedAt = now,
                       directionLastChangedAt = if (old.lookDirection == update.lookDirection) old.directionLastChangedAt else now
                     ))
                   } else {
                     Some(old.copy(
                       lastPositionFromServer = update.position,
-                      smoothedPositionAtLastServerUpdate = old.position,
-                      direction = update.direction,
-                      lookDirection = update.lookDirection,
-                      receivedAt = now,
-                      directionLastChangedAt = if (old.lookDirection == update.lookDirection) old.directionLastChangedAt else now
+                      receivedAt = now
                     ))
                   }
                 } else {
-                  Some(PlayerState(
-                    position = update.position,
+                  val position = if (update.direction.isMoving) old.position else update.position
+                  Some(old.copy(
+                    position = position,
                     lastPositionFromServer = update.position,
                     smoothedPositionAtLastServerUpdate = old.position,
                     direction = update.direction,
