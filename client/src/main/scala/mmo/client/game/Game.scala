@@ -2,7 +2,7 @@ package mmo.client.game
 
 import mmo.client.graphics.{FpsCounter, GlfwEvent, GlfwUtil, KeyboardEvent, TileAtlas}
 import mmo.client.network.{CommandSender, EventReceiver}
-import mmo.common.api.{Constants, Direction, GameMap, LookDirection, PlayerCommand, PlayerDisconnected, PlayerPositionsChanged, Pong, SessionEstablished}
+import mmo.common.api.{Constants, Direction, GameMap, PlayerCommand, PlayerDisconnected, PlayerPositionsChanged, Pong, SessionEstablished}
 import mmo.common.linear.{Rect, V2}
 
 import java.util.UUID
@@ -30,6 +30,23 @@ class Game(
   private val tileAtlas: TileAtlas = TileAtlas.loadFromFile(nvg, "assets/tileset.png")
   private val font: Int = nvgCreateFont(nvg, "Roboto", "assets/roboto/Roboto-Regular.ttf")
   nvgFontFaceId(nvg, font)
+
+  object MovementKeyBits {
+    val left: Int = 1 << 0
+    val right: Int = 1 << 1
+    val up: Int = 1 << 2
+    val down: Int = 1 << 3
+
+    val directions: Array[Direction] = Array(
+      Direction.none,
+      Direction.left,
+      Direction.right, Direction.none,
+      Direction.up, Direction.leftUp, Direction.rightUp, Direction.none,
+      Direction.down, Direction.leftDown, Direction.rightDown, Direction.none,
+      Direction.none, Direction.none, Direction.none, Direction.none
+    )
+  }
+  private var movementKeyBits: Int = 0
 
   private var lastPingSent: Float = 0.0f
   private var lastPingRtt: String = ""
@@ -62,41 +79,42 @@ class Game(
       lastPingRtt = s"RTT: ${(eventReceiver.lastPingNanos.get().toFloat * 1e-6f).toInt} ms"
     }
 
+    val oldMovementKeyBits = movementKeyBits
+
+    object MovementKeyBit {
+      def unapply(keycode: Int): Option[Int] =
+        keycode match {
+          case GLFW_KEY_LEFT => Some(MovementKeyBits.left)
+          case GLFW_KEY_RIGHT => Some(MovementKeyBits.right)
+          case GLFW_KEY_UP => Some(MovementKeyBits.up)
+          case GLFW_KEY_DOWN => Some(MovementKeyBits.down)
+          case _ => None
+        }
+    }
     events.foreach {
-      case KeyboardEvent(key, KeyboardEvent.Press) =>
-        val (direction, lookDirection) = key match {
-          case GLFW_KEY_RIGHT => (Direction.right, LookDirection.right)
-          case GLFW_KEY_LEFT => (Direction.left, LookDirection.left)
-          case GLFW_KEY_UP => (Direction.up, LookDirection.up)
-          case GLFW_KEY_DOWN => (Direction.down, LookDirection.down)
-          case _ => (Direction.none, LookDirection.down)
-        }
-        if (direction.isMoving) {
-          playerStates.updateWith(playerId)(_.map { state =>
-            commandSender.offer(PlayerCommand.Move(state.position, direction, lookDirection))
-            state.copy(direction = direction, lookDirection = lookDirection)
-          })
-        }
+      case KeyboardEvent(MovementKeyBit(bit), KeyboardEvent.Press) =>
+        movementKeyBits |= bit
+
+      case KeyboardEvent(MovementKeyBit(bit), KeyboardEvent.Release) =>
+        movementKeyBits &= ~bit
 
       case KeyboardEvent(GLFW_KEY_F2, KeyboardEvent.Release) =>
         debugShowHitbox = !debugShowHitbox
 
-      case KeyboardEvent(key, KeyboardEvent.Release) =>
-        key match {
-          case GLFW_KEY_RIGHT | GLFW_KEY_LEFT | GLFW_KEY_UP | GLFW_KEY_DOWN =>
-            playerStates.updateWith(playerId)(_.map { state =>
-              if (state.direction.isMoving) {
-                val direction = Direction.none
-                commandSender.offer(PlayerCommand.Move(state.position, direction, state.lookDirection))
-                state.copy(direction = direction)
-              } else {
-                state
-              }
-            })
-          case _ => ()
-        }
-
       case _ => ()
+    }
+
+    if (movementKeyBits != oldMovementKeyBits) {
+      val newDirection = MovementKeyBits.directions(movementKeyBits)
+      playerStates.updateWith(playerId)(_.map { state =>
+        val lookDirection = if (newDirection.isMoving) {
+          newDirection.lookDirection
+        } else {
+          state.lookDirection
+        }
+        commandSender.offer(PlayerCommand.Move(state.position, newDirection, lookDirection))
+        state.copy(direction = newDirection, lookDirection = lookDirection)
+      })
     }
 
     playerStates.mapValuesInPlace { (id, state) =>
