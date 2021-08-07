@@ -25,7 +25,7 @@ object GameActor {
 
   private object positionConstraints {
     // TODO this is flaky
-    val maxAllowedDistanceSqFromPredicted: Double = 1.0
+    val maxAllowedDistanceSqFromPredicted: Double = 1.5
 
     // Allow a diagonal tile traversal and some more
     val maxAllowedDistanceSqFromLast: Double = 2 * (1.1 * 1.1)
