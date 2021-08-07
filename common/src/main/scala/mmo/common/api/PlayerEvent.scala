@@ -14,7 +14,7 @@ object PlayerEvent {
 
 final case class SessionEstablished(
   id: UUID,
-  gameMap: GameMap
+  compactGameMap: CompactGameMap
 ) extends PlayerEvent
 
 final case class Pong(clientTimeNanos: Long) extends PlayerEvent

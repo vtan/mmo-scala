@@ -2,8 +2,9 @@ package mmo.client.game
 
 import mmo.client.graphics.{FpsCounter, GlfwEvent, GlfwUtil, KeyboardEvent, TileAtlas}
 import mmo.client.network.{CommandSender, EventReceiver}
-import mmo.common.api.{Constants, Direction, GameMap, PlayerCommand, PlayerDisconnected, PlayerPositionsChanged, Pong, SessionEstablished}
+import mmo.common.api.{Constants, Direction, PlayerCommand, PlayerDisconnected, PlayerPositionsChanged, Pong, SessionEstablished}
 import mmo.common.linear.{Rect, V2}
+import mmo.common.map.GameMap
 
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
@@ -27,6 +28,7 @@ class Game(
     scaleFactor = 3
   )
 
+  private val charAtlas: TileAtlas = TileAtlas.loadFromFile(nvg, "assets/charset.png")
   private val tileAtlas: TileAtlas = TileAtlas.loadFromFile(nvg, "assets/tileset.png")
   private val font: Int = nvgCreateFont(nvg, "Roboto", "assets/roboto/Roboto-Regular.ttf")
   nvgFontFaceId(nvg, font)
@@ -124,15 +126,15 @@ class Game(
           val positionChange = (dt * 1.0f * Constants.playerTilePerSecond) *: normal
           val newPosition = state.position + positionChange
           val hitbox = Constants.playerHitbox.translate(newPosition)
-          if (gameMap.isRectWalkable(hitbox)) {
+          if (gameMap.doesRectCollide(hitbox)) {
+            commandSender.offer(PlayerCommand.Move(state.position, Direction.none, state.lookDirection))
+            state.copy(direction = Direction.none)
+          } else {
             val hasCrossedTile = newPosition.map(_.floor.toInt) - state.position.map(_.floor.toInt) != V2.zero[Int]
             if (hasCrossedTile) {
               commandSender.offer(PlayerCommand.Move(newPosition, state.direction, state.lookDirection))
             }
             state.copy(position = newPosition)
-          } else {
-            commandSender.offer(PlayerCommand.Move(state.position, Direction.none, state.lookDirection))
-            state.copy(direction = Direction.none)
           }
         } else {
           state
@@ -225,15 +227,19 @@ class Game(
 
     camera.visibleTiles.foreach {
       case V2(x, y) =>
-        gameMap.tile(x, y).foreach { tile =>
-          val tileRect = Rect(xy = V2(x.toDouble, y.toDouble), wh = V2(1.0, 1.0))
-          val texturePosition = V2(tile.tileIndex, 2)
-          tileAtlas.render(
-            nvg,
-            rectOnScreen = camera.transformRect(tileRect),
-            positionOnTexture = texturePosition,
-            scaleFactor = windowGeometry.scaleFactor
-          )
+        val offset = gameMap.offsetOf(x, y).get
+        gameMap.layers.indices.foreach { layerIndex =>
+          val tileIndex = gameMap.layers(layerIndex)(offset)
+          if (!tileIndex.isEmpty && !gameMap.frontTileIndices(tileIndex.asInt)) {
+            val tileRect = Rect(xy = V2(x.toDouble, y.toDouble), wh = V2(1.0, 1.0))
+            val texturePosition = tileIndex.toTexturePosition
+            tileAtlas.render(
+              nvg,
+              rectOnScreen = camera.transformRect(tileRect),
+              positionOnTexture = texturePosition,
+              scaleFactor = windowGeometry.scaleFactor
+            )
+          }
         }
     }
 
@@ -243,7 +249,7 @@ class Game(
         val sizeInTiles = V2(1, 2)
         val playerRect = Rect(xy = player.position - V2(0.0, 1.0), wh = sizeInTiles.map(_.toDouble))
         camera.transformVisibleRect(playerRect).foreach { screenRect =>
-          tileAtlas.render(
+          charAtlas.render(
             nvg,
             rectOnScreen = screenRect,
             positionOnTexture = V2(player.spriteIndexAt(now), 0),
@@ -252,6 +258,26 @@ class Game(
 
           val playerNamePoint = camera.transformPoint(player.position + V2(0.5, -1.2))
           renderText(nvg, playerNamePoint.x, playerNamePoint.y, id.toString.take(4))
+        }
+    }
+
+    // TODO deduplicate with rendering non-front tiles
+
+    camera.visibleTiles.foreach {
+      case V2(x, y) =>
+        val offset = gameMap.offsetOf(x, y).get
+        gameMap.layers.indices.foreach { layerIndex =>
+          val tileIndex = gameMap.layers(layerIndex)(offset)
+          if (!tileIndex.isEmpty && gameMap.frontTileIndices(tileIndex.asInt)) {
+            val tileRect = Rect(xy = V2(x.toDouble, y.toDouble), wh = V2(1.0, 1.0))
+            val texturePosition = tileIndex.toTexturePosition
+            tileAtlas.render(
+              nvg,
+              rectOnScreen = camera.transformRect(tileRect),
+              positionOnTexture = texturePosition,
+              scaleFactor = windowGeometry.scaleFactor
+            )
+          }
         }
     }
 

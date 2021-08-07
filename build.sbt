@@ -46,10 +46,14 @@ lazy val common = (project in file("common")).settings(
 
 lazy val server = (project in file("server")).dependsOn(common).settings {
   val akkaVersion = "2.6.15"
+  val circeVersion = "0.14.1"
   commonSettings ++ Seq(
     libraryDependencies ++= Vector(
       "com.typesafe.akka" %% "akka-actor-typed" % akkaVersion,
       "com.typesafe.akka" %% "akka-stream-typed" % akkaVersion,
+      "io.circe" %% "circe-core" % circeVersion,
+      "io.circe" %% "circe-generic" % circeVersion,
+      "io.circe" %% "circe-parser" % circeVersion,
       "ch.qos.logback" % "logback-classic" % "1.2.3"
     ),
     mainClass := Some("mmo.server.Main"),

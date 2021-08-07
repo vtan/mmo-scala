@@ -1,7 +1,8 @@
 package mmo.server
 
-import mmo.common.api.{Constants, Direction, GameMap, LookDirection, PlayerCommand, PlayerDisconnected, PlayerEvent, PlayerPositionsChanged, Pong, SessionEstablished}
+import mmo.common.api.{CompactGameMap, Constants, Direction, LookDirection, PlayerCommand, PlayerDisconnected, PlayerEvent, PlayerPositionsChanged, Pong, SessionEstablished}
 import mmo.common.linear.V2
+import mmo.common.map.GameMap
 
 import akka.actor.typed.Behavior
 import akka.actor.typed.scaladsl.Behaviors
@@ -30,6 +31,13 @@ object GameActor {
     // Allow a diagonal tile traversal and some more
     val maxAllowedDistanceSqFromLast: Double = 2 * (1.1 * 1.1)
   }
+}
+
+class GameActor(gameMap: GameMap) {
+  import GameActor._
+
+  // TODO since we have this separately, we need the game map only for collision detection
+  private val compactGameMap: CompactGameMap = CompactGameMap.from(gameMap)
 
   def start: Behavior[Message] = running(state = Map.empty)
 
@@ -41,7 +49,7 @@ object GameActor {
         broadcastPlayerPosition(player, state)
 
         val newState = state.updated(player.id, player)
-        queue.offer(SessionEstablished(id, gameMap))
+        queue.offer(SessionEstablished(id, compactGameMap))
         queue.offer(PlayerPositionsChanged(
           newState.values.map(playerStateToEvent(_, force = true)).toSeq
         ))
@@ -60,7 +68,7 @@ object GameActor {
               val timeElapsed = (System.nanoTime() - existing.receivedAtNano).toDouble * 1e-9
               existing.position + timeElapsed *: existing.direction.vector
             }
-            val movedToObstacle = !gameMap.isRectWalkable(Constants.playerHitbox.translate(position))
+            val movedToObstacle = gameMap.doesRectCollide(Constants.playerHitbox.translate(position))
             val movedFarFromLastPosition = (position - existing.position).lengthSq >= positionConstraints.maxAllowedDistanceSqFromLast
             val movedFarFromPredicted = (predictedPosition - position).lengthSq >= positionConstraints.maxAllowedDistanceSqFromPredicted
             val force = movedToObstacle || movedFarFromLastPosition || movedFarFromPredicted
@@ -113,20 +121,4 @@ object GameActor {
 
   private def playerStateToEvent(player: PlayerState, force: Boolean): PlayerPositionsChanged.Entry =
     PlayerPositionsChanged.Entry(player.id, player.position, player.direction, player.lookDirection, force)
-
-  private val gameMap = GameMap(
-    width = 16,
-    height = 32,
-    tiles = Array.tabulate(16 * 32) { i =>
-      val x = i % 16
-      val y = i / 16
-      val grass = GameMap.Tile(0, true)
-      val water = GameMap.Tile(1, false)
-      if (x % 4 >= 2 && y % 4 >= 2 && (x / 4) % 3 != 0 && (y / 4) % 4 != 0) {
-        water
-      } else {
-        grass
-      }
-    }
-  )
 }
