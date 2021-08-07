@@ -167,6 +167,7 @@ class Game(
                 if (update.id == playerId) {
                   if (update.force) {
                     Some(old.copy(
+                      position = update.position,
                       lastPositionFromServer = update.position,
                       direction = update.direction,
                       lookDirection = update.lookDirection,
