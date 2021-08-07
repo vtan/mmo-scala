@@ -47,16 +47,16 @@ object GlfwUtil {
     window
   }
 
-  def getWindowGeometry(window: Long): (V2[Float], Float) = {
+  def getWindowGeometry(window: Long): (V2[Double], Double) = {
     val windowWidth = Array(0)
     val windowHeight = Array(0)
     val framebufferWidth = Array(0)
     val framebufferHeight = Array(0)
     glfwGetWindowSize(window, windowWidth, windowHeight)
     glfwGetFramebufferSize(window, framebufferWidth, framebufferHeight)
-    val pixelRatio = framebufferWidth(0).toFloat / windowWidth(0).toFloat
+    val pixelRatio = framebufferWidth(0).toDouble / windowWidth(0).toDouble
 
-    (V2(windowWidth(0).toFloat, windowHeight(0).toFloat), pixelRatio)
+    (V2(windowWidth(0).toDouble, windowHeight(0).toDouble), pixelRatio)
   }
 
   def color(r: Double, g: Double, b: Double, a: Double = 1.0): NVGColor = {

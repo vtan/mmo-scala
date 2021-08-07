@@ -10,7 +10,7 @@ import java.util.UUID
 
 final case class PlayerState(
   id: UUID,
-  position: V2[Float],
+  position: V2[Double],
   direction: Direction,
   lookDirection: LookDirection,
   queue: SourceQueueWithComplete[PlayerEvent],
@@ -23,8 +23,13 @@ object GameActor {
   final case class PlayerCommandReceived(id: UUID, command: PlayerCommand) extends Message
   final case class Disconnected(id: UUID) extends Message
 
-  // TODO this doesn't work
-  private val positionPredictionThreshold: Float = 1.0f
+  private object positionConstraints {
+    // TODO this is flaky
+    val maxAllowedDistanceSqFromPredicted: Double = 1.0
+
+    // Allow a diagonal tile traversal and some more
+    val maxAllowedDistanceSqFromLast: Double = 2 * (1.1 * 1.1)
+  }
 
   def start: Behavior[Message] = running(state = Map.empty)
 
@@ -52,12 +57,12 @@ object GameActor {
         state.get(id) match {
           case Some(existing) =>
             val predictedPosition = {
-              val timeElapsed = (System.nanoTime() - existing.receivedAtNano).toFloat * 1e-9f
+              val timeElapsed = (System.nanoTime() - existing.receivedAtNano).toDouble * 1e-9
               existing.position + timeElapsed *: existing.direction.vector
             }
             val movedToObstacle = !gameMap.isRectWalkable(Constants.playerHitbox.translate(position))
-            val movedFarFromLastPosition = (position - existing.position).lengthSq >= 2
-            val movedFarFromPredicted = (predictedPosition - position).lengthSq >= positionPredictionThreshold
+            val movedFarFromLastPosition = (position - existing.position).lengthSq >= positionConstraints.maxAllowedDistanceSqFromLast
+            val movedFarFromPredicted = (predictedPosition - position).lengthSq >= positionConstraints.maxAllowedDistanceSqFromPredicted
             val force = movedToObstacle || movedFarFromLastPosition || movedFarFromPredicted
             val newPlayer = existing.copy(
               position = if (movedToObstacle || movedFarFromLastPosition) {

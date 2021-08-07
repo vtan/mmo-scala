@@ -24,7 +24,7 @@ final case class PlayerPositionsChanged(positions: Seq[PlayerPositionsChanged.En
 object PlayerPositionsChanged {
   final case class Entry(
     id: UUID,
-    position: V2[Float],
+    position: V2[Double],
     direction: Direction,
     lookDirection: LookDirection,
     force: Boolean

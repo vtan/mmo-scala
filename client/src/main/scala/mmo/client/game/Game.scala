@@ -21,7 +21,7 @@ class Game(
   commandSender: CommandSender
 ) {
   private val nvg: Long = nvgCreate(0)
-  private val (windowSize: V2[Float], pixelRatio: Float) = GlfwUtil.getWindowGeometry(window)
+  private val (windowSize: V2[Double], pixelRatio: Double) = GlfwUtil.getWindowGeometry(window)
   private val windowGeometry = WindowGeometry(
     windowSize = windowSize,
     scaleFactor = 3
@@ -48,7 +48,7 @@ class Game(
   }
   private var movementKeyBits: Int = 0
 
-  private var lastPingSent: Float = 0.0f
+  private var lastPingSent: Double = 0.0f
   private var lastPingRtt: String = ""
   private val playerStates = scala.collection.mutable.Map.empty[UUID, PlayerState]
   private var debugShowHitbox: Boolean = false
@@ -60,9 +60,9 @@ class Game(
 
     while (!glfwWindowShouldClose(window)) {
       val events = glfwEventsRef.getAndSet(Nil).reverse
-      update(events, now.toFloat, (now - lastFrameTime).toFloat)
+      update(events, now, now - lastFrameTime)
 
-      render(now.toFloat)
+      render(now)
       glfwSwapBuffers(window)
       glfwPollEvents()
 
@@ -72,11 +72,11 @@ class Game(
     }
   }
 
-  private def update(events: List[GlfwEvent], now: Float, dt: Float): Unit = {
+  private def update(events: List[GlfwEvent], now: Double, dt: Double): Unit = {
     if (now - lastPingSent >= 1.0f) {
       commandSender.offer(PlayerCommand.Ping(System.nanoTime()))
       lastPingSent = now
-      lastPingRtt = s"RTT: ${(eventReceiver.lastPingNanos.get().toFloat * 1e-6f).toInt} ms"
+      lastPingRtt = s"RTT: ${eventReceiver.lastPingNanos.get() / 1_000_000L} ms"
     }
 
     val oldMovementKeyBits = movementKeyBits
@@ -214,19 +214,19 @@ class Game(
     }
   }
 
-  private def render(now: Float): Unit = {
+  private def render(now: Double): Unit = {
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)
 
-    nvgBeginFrame(nvg, windowSize.x, windowSize.y, pixelRatio)
+    nvgBeginFrame(nvg, windowSize.x.toFloat, windowSize.y.toFloat, pixelRatio.toFloat)
     nvgFontSize(nvg, 20)
 
-    val camera = Camera.centerOn(playerStates.get(playerId).fold(V2.zero[Float])(_.position), gameMap.size, windowGeometry)
+    val camera = Camera.centerOn(playerStates.get(playerId).fold(V2.zero[Double])(_.position), gameMap.size, windowGeometry)
 
     camera.visibleTiles.foreach {
       case V2(x, y) =>
         gameMap.tile(x, y).foreach { tile =>
-          val tileRect = Rect(xy = V2(x.toFloat, y.toFloat), wh = V2(1.0f, 1.0f))
+          val tileRect = Rect(xy = V2(x.toDouble, y.toDouble), wh = V2(1.0, 1.0))
           val texturePosition = V2(tile.tileIndex, 2)
           tileAtlas.render(
             nvg,
@@ -241,7 +241,7 @@ class Game(
     playerStates.foreach {
       case (id, player) =>
         val sizeInTiles = V2(1, 2)
-        val playerRect = Rect(xy = player.position - V2(0.0f, 1.0f), wh = sizeInTiles.map(_.toFloat))
+        val playerRect = Rect(xy = player.position - V2(0.0, 1.0), wh = sizeInTiles.map(_.toDouble))
         camera.transformVisibleRect(playerRect).foreach { screenRect =>
           tileAtlas.render(
             nvg,
@@ -250,7 +250,7 @@ class Game(
             scaleFactor = windowGeometry.scaleFactor
           )
 
-          val playerNamePoint = camera.transformPoint(player.position + V2(0.5f, -1.2f))
+          val playerNamePoint = camera.transformPoint(player.position + V2(0.5, -1.2))
           renderText(nvg, playerNamePoint.x, playerNamePoint.y, id.toString.take(4))
         }
     }
@@ -263,7 +263,7 @@ class Game(
           camera.transformVisibleRect(hitbox).foreach {
             case Rect(V2(x, y), V2(w, h)) =>
               nvgBeginPath(nvg)
-              nvgRect(nvg, x, y, w, h)
+              nvgRect(nvg, x.toFloat, y.toFloat, w.toFloat, h.toFloat)
               nvgStroke(nvg)
           }
       }
@@ -275,11 +275,11 @@ class Game(
     nvgEndFrame(nvg)
   }
 
-  private def renderText(nvg: Long, x: Float, y: Float, str: String): Unit = {
+  private def renderText(nvg: Long, x: Double, y: Double, str: String): Unit = {
     nvgFillColor(nvg, GlfwUtil.color(0, 0, 0, 0.7))
-    val _ = nvgText(nvg, x + 1, y + 1, str)
+    val _ = nvgText(nvg, (x + 1).toFloat, (y + 1).toFloat, str)
 
     nvgFillColor(nvg, GlfwUtil.color(1, 1, 1))
-    val _ = nvgText(nvg, x, y, str)
+    val _ = nvgText(nvg, x.toFloat, y.toFloat, str)
   }
 }

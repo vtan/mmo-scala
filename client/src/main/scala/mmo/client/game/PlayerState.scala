@@ -4,15 +4,15 @@ import mmo.common.api.{Direction, LookDirection}
 import mmo.common.linear.V2
 
 final case class PlayerState(
-  position: V2[Float],
-  lastPositionFromServer: V2[Float],
-  smoothedPositionAtLastServerUpdate: V2[Float],
+  position: V2[Double],
+  lastPositionFromServer: V2[Double],
+  smoothedPositionAtLastServerUpdate: V2[Double],
   direction: Direction,
   lookDirection: LookDirection,
-  receivedAt: Float,
-  directionLastChangedAt: Float
+  receivedAt: Double,
+  directionLastChangedAt: Double
 ) {
-  def spriteIndexAt(time: Float): Int =
+  def spriteIndexAt(time: Double): Int =
     if (direction.isMoving) {
       val offset = (((time - directionLastChangedAt) / 0.15f) % 4).toInt match {
         case 0 => 1

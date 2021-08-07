@@ -1,6 +1,6 @@
 package mmo.common.linear
 
-final case class Rect[@specialized(Float) T](
+final case class Rect[@specialized(Int, Float, Double) T](
   xy: V2[T],
   wh: V2[T]
 ) {

@@ -16,7 +16,7 @@ final case class GameMap(
       None
     }
 
-  def isRectWalkable(hitbox: Rect[Float]): Boolean = {
+  def isRectWalkable(hitbox: Rect[Double]): Boolean = {
     val Rect(V2(x, y), V2(w, h)) = hitbox
     val x1 = x.floor.toInt
     val y1 = y.floor.toInt

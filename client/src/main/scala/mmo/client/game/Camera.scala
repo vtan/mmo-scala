@@ -4,35 +4,35 @@ import mmo.client.graphics.TileAtlas
 import mmo.common.linear.{Rect, V2}
 
 final case class WindowGeometry(
-  windowSize: V2[Float],
+  windowSize: V2[Double],
   scaleFactor: Int
 ) {
-  val pixelPerTile: Float = (scaleFactor * TileAtlas.tileSize).toFloat
+  val pixelPerTile: Double = (scaleFactor * TileAtlas.tileSize).toDouble
 }
 
 final case class Camera(
-  viewport: Rect[Float],
+  viewport: Rect[Double],
   mapSize: V2[Int],
   windowGeometry: WindowGeometry
 ) {
 
-  def transformVisibleRect(tile: Rect[Float]): Option[Rect[Float]] =
+  def transformVisibleRect(tile: Rect[Double]): Option[Rect[Double]] =
     if (isRectVisible(tile)) {
       Some(transformRect(tile))
     } else {
       None
     }
 
-  def transformRect(tile: Rect[Float]): Rect[Float] =
+  def transformRect(tile: Rect[Double]): Rect[Double] =
     Rect(
       xy = transformPoint(tile.xy),
       wh = windowGeometry.pixelPerTile *: tile.wh
     )
 
-  def transformPoint(point: V2[Float]): V2[Float] =
+  def transformPoint(point: V2[Double]): V2[Double] =
     (windowGeometry.pixelPerTile *: (point - viewport.xy)).map(_.floor)
 
-  def isRectVisible(rect: Rect[Float]): Boolean =
+  def isRectVisible(rect: Rect[Double]): Boolean =
     viewport.intersects(rect)
 
   def visibleTiles: Iterator[V2[Int]] = {
@@ -51,10 +51,10 @@ final case class Camera(
 
 object Camera {
 
-  def centerOn(target: V2[Float], mapSize: V2[Int], windowGeometry: WindowGeometry): Camera = {
+  def centerOn(target: V2[Double], mapSize: V2[Int], windowGeometry: WindowGeometry): Camera = {
     val size = (1.0f / windowGeometry.pixelPerTile) *: windowGeometry.windowSize
     val topLeft = {
-      def positionOnAxis(target: Float, windowExtent: Float, mapExtent: Float): Float = {
+      def positionOnAxis(target: Double, windowExtent: Double, mapExtent: Double): Double = {
         val min = target - windowExtent / 2
         val max = target + windowExtent / 2
         val belowMin = min < 0
@@ -71,8 +71,8 @@ object Camera {
       }
 
       V2(
-        positionOnAxis(target.x, size.x, mapSize.x.toFloat),
-        positionOnAxis(target.y, size.y, mapSize.y.toFloat)
+        positionOnAxis(target.x, size.x, mapSize.x.toDouble),
+        positionOnAxis(target.y, size.y, mapSize.y.toDouble)
       )
     }
     Camera(
