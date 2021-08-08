@@ -1,5 +1,6 @@
 package mmo.server
 
+import mmo.common.api.CompactGameMap
 import mmo.server.tiled.{TiledMap, Tileset}
 
 import akka.actor.typed.scaladsl.adapter._
@@ -8,6 +9,8 @@ import akka.io.Tcp.SO.TcpNoDelay
 import akka.stream.scaladsl.{Keep, Source, Tcp}
 import akka.stream.scaladsl.Tcp.{IncomingConnection, ServerBinding}
 import akka.Done
+import com.sksamuel.avro4s.AvroOutputStream
+import java.io.ByteArrayOutputStream
 import java.nio.file.{Files, Path}
 import org.slf4j.LoggerFactory
 import scala.concurrent.{ExecutionContext, Future}
@@ -31,7 +34,9 @@ object Main {
     implicit val system: ActorSystem = ActorSystem(name = "system")
     implicit val ec: ExecutionContext = system.dispatcher
 
-    val gameMap = map.toGameMap(tileset)
+    val gameMap = ServerGameMap.from(map.toGameMap(tileset))
+    log.info(s"Map size is ${calculateMapLength(gameMap.compactGameMap)} bytes")
+
     val gameActor = new GameActor(gameMap)
     val gameActorRef = system.spawn(gameActor.start, name = "game")
 
@@ -49,5 +54,13 @@ object Main {
     }
 
     log.info(s"Server running on $host:$port")
+  }
+
+  private def calculateMapLength(compactGameMap: CompactGameMap): Int = {
+    val baos = new ByteArrayOutputStream()
+    val aos = AvroOutputStream.binary[CompactGameMap].to(baos).build()
+    aos.write(compactGameMap)
+    aos.close()
+    baos.size()
   }
 }

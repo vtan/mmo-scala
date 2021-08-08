@@ -1,8 +1,7 @@
 package mmo.server
 
-import mmo.common.api.{CompactGameMap, Constants, Direction, LookDirection, PlayerCommand, PlayerDisconnected, PlayerEvent, PlayerPositionsChanged, Pong, SessionEstablished}
+import mmo.common.api.{Constants, Direction, LookDirection, PlayerCommand, PlayerDisconnected, PlayerEvent, PlayerPositionsChanged, Pong, SessionEstablished}
 import mmo.common.linear.V2
-import mmo.common.map.GameMap
 
 import akka.actor.typed.Behavior
 import akka.actor.typed.scaladsl.Behaviors
@@ -33,11 +32,8 @@ object GameActor {
   }
 }
 
-class GameActor(gameMap: GameMap) {
+class GameActor(gameMap: ServerGameMap) {
   import GameActor._
-
-  // TODO since we have this separately, we need the game map only for collision detection
-  private val compactGameMap: CompactGameMap = CompactGameMap.from(gameMap)
 
   def start: Behavior[Message] = running(state = Map.empty)
 
@@ -49,7 +45,7 @@ class GameActor(gameMap: GameMap) {
         broadcastPlayerPosition(player, state)
 
         val newState = state.updated(player.id, player)
-        queue.offer(SessionEstablished(id, compactGameMap))
+        queue.offer(SessionEstablished(id, gameMap.compactGameMap))
         queue.offer(PlayerPositionsChanged(
           newState.values.map(playerStateToEvent(_, force = true)).toSeq
         ))
@@ -68,7 +64,7 @@ class GameActor(gameMap: GameMap) {
               val timeElapsed = (System.nanoTime() - existing.receivedAtNano).toDouble * 1e-9
               existing.position + timeElapsed *: existing.direction.vector
             }
-            val movedToObstacle = gameMap.doesRectCollide(Constants.playerHitbox.translate(position))
+            val movedToObstacle = gameMap.gameMap.doesRectCollide(Constants.playerHitbox.translate(position))
             val movedFarFromLastPosition = (position - existing.position).lengthSq >= positionConstraints.maxAllowedDistanceSqFromLast
             val movedFarFromPredicted = (predictedPosition - position).lengthSq >= positionConstraints.maxAllowedDistanceSqFromPredicted
             val force = movedToObstacle || movedFarFromLastPosition || movedFarFromPredicted
