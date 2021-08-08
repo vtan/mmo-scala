@@ -2,7 +2,7 @@ package mmo.client.game
 
 import mmo.client.graphics.{FpsCounter, GlfwEvent, GlfwUtil, KeyboardEvent, TileAtlas}
 import mmo.client.network.{CommandSender, EventReceiver}
-import mmo.common.api.{Constants, Direction, PlayerCommand, PlayerConnected, PlayerDisappeared, PlayerDisconnected, PlayerId, PlayerPositionsChanged, Pong, SessionEstablished, Teleported}
+import mmo.common.api.{Constants, Direction, MovementAcked, OtherPlayerConnected, OtherPlayerDisappeared, OtherPlayerDisconnected, PlayerCommand, PlayerId, PlayerPositionsChanged, Pong, SessionEstablished, Teleported}
 import mmo.common.linear.{Rect, V2}
 import mmo.common.map.GameMap
 
@@ -144,14 +144,14 @@ class Game(
       } else {
         if (state.direction.isMoving) {
           val interpolationStartPeriod = 0.5f
-          if (now - state.receivedAt <= interpolationStartPeriod) {
+          if (now - state.lastServerEventAt <= interpolationStartPeriod) {
             // Interpolating to predicted position in the near future to avoid jumping on a new update from server
-            val t = (now - state.receivedAt) / interpolationStartPeriod
+            val t = (now - state.lastServerEventAt) / interpolationStartPeriod
             val target = state.lastPositionFromServer + (interpolationStartPeriod * Constants.playerTilePerSecond) *: state.direction.vector
             val position = ((1 - t) *: state.smoothedPositionAtLastServerUpdate) + (t *: target)
             state.copy(position = position)
           } else {
-            val interpolatedMovement = ((now - state.receivedAt) * Constants.playerTilePerSecond) *: state.direction.vector
+            val interpolatedMovement = ((now - state.lastServerEventAt) * Constants.playerTilePerSecond) *: state.direction.vector
             val position = state.lastPositionFromServer + interpolatedMovement
             state.copy(position = position)
           }
@@ -169,21 +169,14 @@ class Game(
             playerStates.updateWith(update.id) {
               case Some(old) =>
                 if (update.id == playerId) {
-                  if (update.force) {
-                    Some(old.copy(
-                      position = update.position,
-                      lastPositionFromServer = update.position,
-                      direction = update.direction,
-                      lookDirection = update.lookDirection,
-                      receivedAt = now,
-                      directionLastChangedAt = if (old.lookDirection == update.lookDirection) old.directionLastChangedAt else now
-                    ))
-                  } else {
-                    Some(old.copy(
-                      lastPositionFromServer = update.position,
-                      receivedAt = now
-                    ))
-                  }
+                  Some(old.copy(
+                    position = update.position,
+                    lastPositionFromServer = update.position,
+                    direction = update.direction,
+                    lookDirection = update.lookDirection,
+                    lastServerEventAt = now,
+                    directionLastChangedAt = if (old.lookDirection == update.lookDirection) old.directionLastChangedAt else now
+                  ))
                 } else {
                   val position = if (update.direction.isMoving) old.position else update.position
                   Some(old.copy(
@@ -192,7 +185,7 @@ class Game(
                     smoothedPositionAtLastServerUpdate = old.position,
                     direction = update.direction,
                     lookDirection = update.lookDirection,
-                    receivedAt = now,
+                    lastServerEventAt = now,
                     directionLastChangedAt = if (old.lookDirection == update.lookDirection) old.directionLastChangedAt else now
                   ))
                 }
@@ -203,22 +196,33 @@ class Game(
                   smoothedPositionAtLastServerUpdate = update.position,
                   direction = update.direction,
                   lookDirection = update.lookDirection,
-                  receivedAt = now,
+                  lastServerEventAt = now,
                   directionLastChangedAt = now
                 ))
             }
           }
+
+        case MovementAcked(position) =>
+          playerStates.updateWith(playerId)(_.map(_.copy(
+            lastPositionFromServer = position,
+            lastServerEventAt = now
+          )))
+
         case Teleported(compactGameMap) =>
           gameMap = compactGameMap.toGameMap
+          // Player positions (including ours) on the new map will follow in another event
           playerStates.clear()
 
-        case PlayerDisappeared(id) =>
+        case OtherPlayerDisappeared(id) =>
           playerStates -= id
-        case PlayerConnected(id, name) =>
+
+        case OtherPlayerConnected(id, name) =>
           playerNames += (id -> name)
-        case PlayerDisconnected(id) =>
+
+        case OtherPlayerDisconnected(id) =>
           playerStates -= id
           playerNames -= id
+
         case _: Pong | _: SessionEstablished =>
           throw new RuntimeException("This should not happen")
 

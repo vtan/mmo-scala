@@ -9,7 +9,7 @@ final case class PlayerState(
   smoothedPositionAtLastServerUpdate: V2[Double],
   direction: Direction,
   lookDirection: LookDirection,
-  receivedAt: Double,
+  lastServerEventAt: Double,
   directionLastChangedAt: Double
 ) {
   def spriteIndexAt(time: Double): Int =

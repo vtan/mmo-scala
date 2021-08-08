@@ -19,6 +19,8 @@ final case class SessionEstablished(
 
 final case class Pong(clientTimeNanos: Long) extends PlayerEvent
 
+final case class MovementAcked(position: V2[Double]) extends PlayerEvent
+
 final case class Teleported(compactGameMap: CompactGameMap) extends PlayerEvent
 
 final case class PlayerPositionsChanged(positions: Seq[PlayerPositionsChanged.Entry]) extends PlayerEvent
@@ -28,13 +30,12 @@ object PlayerPositionsChanged {
     id: PlayerId,
     position: V2[Double],
     direction: Direction,
-    lookDirection: LookDirection,
-    force: Boolean
+    lookDirection: LookDirection
   )
 }
 
-final case class PlayerDisappeared(id: PlayerId) extends PlayerEvent
+final case class OtherPlayerDisappeared(id: PlayerId) extends PlayerEvent
 
-final case class PlayerConnected(id: PlayerId, name: String) extends PlayerEvent
+final case class OtherPlayerConnected(id: PlayerId, name: String) extends PlayerEvent
 
-final case class PlayerDisconnected(id: PlayerId) extends PlayerEvent
+final case class OtherPlayerDisconnected(id: PlayerId) extends PlayerEvent

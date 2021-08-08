@@ -1,6 +1,6 @@
 package mmo.server
 
-import mmo.common.api.{Constants, Direction, Id, LookDirection, PlayerCommand, PlayerConnected, PlayerDisappeared, PlayerDisconnected, PlayerEvent, PlayerId, PlayerPositionsChanged, Pong, SessionEstablished, Teleported}
+import mmo.common.api.{Constants, Direction, Id, LookDirection, MovementAcked, OtherPlayerConnected, OtherPlayerDisappeared, OtherPlayerDisconnected, PlayerCommand, PlayerEvent, PlayerId, PlayerPositionsChanged, Pong, SessionEstablished, Teleported}
 import mmo.common.linear.V2
 
 import akka.actor.typed.Behavior
@@ -46,19 +46,19 @@ class GameActor(
     Behaviors.receiveMessage {
       // TODO: handle exceptions by disconnecting the player whose command triggered the error
 
-      case Connected(id, queue) =>
+      case Connected(playerId, queue) =>
         val name = UUID.randomUUID().toString.take(6).toUpperCase
         val (mapId, map) = maps.minBy(_._1.asLong)
-        val player = PlayerState(id, name, mapId, V2(2, 1), Direction.none, LookDirection.down, queue, System.nanoTime())
-        broadcastPlayerConnection(player, state)
-        broadcastPlayerPosition(player, state)
+        val player = PlayerState(playerId, name, mapId, V2(2, 1), Direction.none, LookDirection.down, queue, System.nanoTime())
 
         val newState = state.updated(player.id, player)
         val playerNames = newState.map { case (id, player) => id -> player.name }.toSeq
-        queue.offer(SessionEstablished(id, playerNames, map.compactGameMap))
+
+        queue.offer(SessionEstablished(playerId, playerNames, map.compactGameMap))
+        broadcastPlayerConnection(player, state)
+        broadcastPlayerPosition(player, state, ack = false)
         queue.offer(PlayerPositionsChanged(
-          // TODO: deduplicate with teleport?
-          newState.values.filter(_.mapId == mapId).map(playerStateToEvent(_, force = true)).toSeq
+          (newState - playerId).values.filter(_.mapId == mapId).map(playerStateToEvent).toSeq
         ))
         running(newState)
 
@@ -68,7 +68,7 @@ class GameActor(
         }
         Behaviors.same
 
-      case PlayerCommandReceived(id, PlayerCommand.Move(position, direction, lookDirection)) =>
+      case PlayerCommandReceived(id, requested: PlayerCommand.Move) =>
         state.get(id) match {
           case Some(existing) =>
             val predictedPosition = {
@@ -76,13 +76,13 @@ class GameActor(
               existing.position + timeElapsed *: existing.direction.vector
             }
             val map = maps(existing.mapId)
-            val movedToObstacle = map.gameMap.doesRectCollide(Constants.playerHitbox.translate(position))
-            val movedFarFromLastPosition = (position - existing.position).lengthSq >= positionConstraints.maxAllowedDistanceSqFromLast
-            val movedFarFromPredicted = (predictedPosition - position).lengthSq >= positionConstraints.maxAllowedDistanceSqFromPredicted
-            val force = movedToObstacle || movedFarFromLastPosition || movedFarFromPredicted
+            val movedToObstacle = map.gameMap.doesRectCollide(Constants.playerHitbox.translate(requested.position))
+            val movedFarFromLastPosition = (requested.position - existing.position).lengthSq >= positionConstraints.maxAllowedDistanceSqFromLast
+            val movedFarFromPredicted = (predictedPosition - requested.position).lengthSq >= positionConstraints.maxAllowedDistanceSqFromPredicted
+            val invalid = movedToObstacle || movedFarFromLastPosition || movedFarFromPredicted
 
-            val enteredTeleport = if (!force) {
-              findTeleportAt(existing.position, position, map.teleports)
+            val enteredTeleport = if (!invalid) {
+              findTeleportAt(existing.position, requested.position, map.teleports)
             } else {
               None
             }
@@ -100,24 +100,23 @@ class GameActor(
                 running(newState)
 
               case None =>
-                val newPlayer = existing.copy(
-                  position = if (movedToObstacle || movedFarFromLastPosition) {
-                    existing.position
-                  } else if (movedFarFromPredicted) {
-                    predictedPosition
-                  } else {
-                    position
-                  },
-                  direction = if (movedToObstacle || movedFarFromLastPosition) {
-                    Direction.none
-                  } else {
-                    direction
-                  },
-                  lookDirection = lookDirection,
-                  receivedAtNano = System.nanoTime()
-                )
+                val newPlayer = if (invalid) {
+                  existing.copy(
+                    position = if (movedFarFromPredicted) predictedPosition else existing.position,
+                    direction = if (movedToObstacle) Direction.none else requested.direction,
+                    lookDirection = requested.lookDirection,
+                    receivedAtNano = System.nanoTime()
+                  )
+                } else {
+                  existing.copy(
+                    position = requested.position,
+                    direction = requested.direction,
+                    lookDirection = requested.lookDirection,
+                    receivedAtNano = System.nanoTime()
+                  )
+                }
                 val newState = state.updated(newPlayer.id, newPlayer)
-                broadcastPlayerPosition(newPlayer, newState, force = force)
+                broadcastPlayerPosition(newPlayer, newState, ack = !invalid)
                 running(newState)
             }
           case None =>
@@ -135,18 +134,20 @@ class GameActor(
     val newState = state.removed(id)
     state.get(id).foreach { player =>
       player.queue.complete()
-      broadcastEvent(PlayerDisconnected(id), newState)
+      broadcastEvent(OtherPlayerDisconnected(id), newState)
     }
     running(newState)
   }
 
-  private def broadcastPlayerPosition(player: PlayerState, state: Map[PlayerId, PlayerState], force: Boolean = false): Unit = {
-    val event = PlayerPositionsChanged(Seq(playerStateToEvent(player, force)))
-    broadcastEvent(event, state.filter(_._2.mapId == player.mapId))
+  private def broadcastPlayerPosition(player: PlayerState, state: Map[PlayerId, PlayerState], ack: Boolean): Unit = {
+    val toOthers = PlayerPositionsChanged(Seq(playerStateToEvent(player)))
+    val toPlayer = if (ack) MovementAcked(player.position) else toOthers
+    player.queue.offer(toPlayer)
+    broadcastEvent(toOthers, (state - player.id).filter(_._2.mapId == player.mapId))
   }
 
   private def broadcastPlayerConnection(player: PlayerState, state: Map[PlayerId, PlayerState]): Unit = {
-    val event = PlayerConnected(player.id, player.name)
+    val event = OtherPlayerConnected(player.id, player.name)
     broadcastEvent(event, state - player.id)
   }
 
@@ -159,12 +160,12 @@ class GameActor(
         val playersOnMap = state.filter(_._2.mapId == newMap.id)
         List(
           Teleported(newMap.compactGameMap),
-          PlayerPositionsChanged(playersOnMap.values.map(playerStateToEvent(_, force = true)).toSeq)
+          PlayerPositionsChanged(playersOnMap.values.map(playerStateToEvent).toSeq)
         )
       } else if (isOnTargetMap) {
-        List(PlayerPositionsChanged(Seq(playerStateToEvent(player, force = true))))
+        List(PlayerPositionsChanged(Seq(playerStateToEvent(player))))
       } else if (isOnPreviousMap) {
-        List(PlayerDisappeared(player.id))
+        List(OtherPlayerDisappeared(player.id))
       } else {
         Nil
       }
@@ -175,8 +176,8 @@ class GameActor(
   private def broadcastEvent(event: PlayerEvent, state: Map[PlayerId, PlayerState]): Unit =
     state.values.foreach(_.queue.offer(event))
 
-  private def playerStateToEvent(player: PlayerState, force: Boolean): PlayerPositionsChanged.Entry =
-    PlayerPositionsChanged.Entry(player.id, player.position, player.direction, player.lookDirection, force)
+  private def playerStateToEvent(player: PlayerState): PlayerPositionsChanged.Entry =
+    PlayerPositionsChanged.Entry(player.id, player.position, player.direction, player.lookDirection)
 
   private def findTeleportAt(
     oldPosition: V2[Double],
