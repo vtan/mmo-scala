@@ -34,7 +34,14 @@ val commonSettings = Seq(
     "-Ywarn-unused:privates",            // Warn if a private member is unused.
     "-Ywarn-value-discard",              // Warn when non-Unit expression results are unused.
     "-Ywarn-macros:after"
-  )
+  ),
+  assembly / assemblyMergeStrategy := {
+    case "module-info.class" => MergeStrategy.discard
+    case PathList("META-INF", "versions", "9", "module-info.class") => MergeStrategy.discard
+    case path =>
+      val oldStrategy = (assembly / assemblyMergeStrategy).value
+      oldStrategy(path)
+  }
 )
 
 lazy val common = (project in file("common")).settings(
@@ -57,13 +64,8 @@ lazy val server = (project in file("server")).dependsOn(common).settings {
       "ch.qos.logback" % "logback-classic" % "1.2.3"
     ),
     mainClass := Some("mmo.server.Main"),
-    run / fork := true,
-    assembly / assemblyMergeStrategy := {
-      case "module-info.class" => MergeStrategy.discard
-      case x =>
-        val oldStrategy = (assembly / assemblyMergeStrategy).value
-        oldStrategy(x)
-    }
+    run / fork := true
+
   )
 }
 
