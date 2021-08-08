@@ -1,7 +1,7 @@
 package mmo.client
 
 import mmo.client.game.Game
-import mmo.client.graphics.{GlfwEvent, GlfwUtil, KeyboardEvent}
+import mmo.client.graphics.{FpsCounter, GlfwEvent, GlfwUtil, KeyboardEvent}
 import mmo.client.network.{CommandSenderRunnable, EventReceiverRunnable}
 import mmo.common.api.{PlayerCommand, SessionEstablished}
 import mmo.common.linear.V2
@@ -10,6 +10,7 @@ import java.net.Socket
 import java.util.concurrent.atomic.AtomicReference
 import org.lwjgl.glfw.Callbacks._
 import org.lwjgl.glfw.GLFW._
+import org.lwjgl.glfw.GLFWKeyCallbackI
 import org.lwjgl.opengl._
 
 object Main {
@@ -39,27 +40,30 @@ object Main {
     GL.createCapabilities()
 
     val eventsRef = new AtomicReference(List.empty[GlfwEvent])
-    glfwSetKeyCallback(window,
-      (window: Long, key: Int, scancode: Int, action: Int, mods: Int) => {
-        val event = KeyboardEvent(
-          key = key,
-          action = action match {
-            case GLFW_PRESS => KeyboardEvent.Press
-            case GLFW_RELEASE => KeyboardEvent.Release
-            case GLFW_REPEAT => KeyboardEvent.Repeat
-            case unknown => throw new RuntimeException(s"Unexpected GLFW keyboard action: $unknown")
-          }
-        )
-        val _ = eventsRef.updateAndGet(event :: _)
-        ()
-      }
-    )
+    glfwSetKeyCallback(window, keyCallback(eventsRef))
 
     val sessionEstablised = eventReceiver.take() match {
       case s: SessionEstablished => s
       case _ => throw new RuntimeException("Unexpected first event type")
     }
-    Game(window, eventsRef, eventReceiver, commandSender, sessionEstablised).run()
+    val game = Game(window, eventReceiver, commandSender, sessionEstablised)
+
+    val fpsCounter = new FpsCounter
+    var now: Double = glfwGetTime()
+    var lastFrameTime: Double = now
+
+    while (!glfwWindowShouldClose(window)) {
+      val events = eventsRef.getAndSet(Nil).reverse
+      game.update(events, now, now - lastFrameTime)
+      game.render(now)
+
+      glfwSwapBuffers(window)
+      glfwPollEvents()
+
+      lastFrameTime = now
+      now = glfwGetTime()
+      fpsCounter.endOfFrame(window, now)
+    }
 
     eventReceiverThread.interrupt()
     commandSenderThread.interrupt()
@@ -71,4 +75,19 @@ object Main {
     glfwTerminate()
     glfwSetErrorCallback(null).free()
   }
+
+  private def keyCallback(events: AtomicReference[List[GlfwEvent]]): GLFWKeyCallbackI =
+    (window: Long, key: Int, scancode: Int, action: Int, mods: Int) => {
+      val event = KeyboardEvent(
+        key = key,
+        action = action match {
+          case GLFW_PRESS => KeyboardEvent.Press
+          case GLFW_RELEASE => KeyboardEvent.Release
+          case GLFW_REPEAT => KeyboardEvent.Repeat
+          case unknown => throw new RuntimeException(s"Unexpected GLFW keyboard action: $unknown")
+        }
+      )
+      val _ = events.updateAndGet(event :: _)
+      ()
+    }
 }

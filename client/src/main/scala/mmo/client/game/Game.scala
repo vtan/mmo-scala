@@ -1,12 +1,11 @@
 package mmo.client.game
 
-import mmo.client.graphics.{FpsCounter, GlfwEvent, GlfwUtil, KeyboardEvent, TileAtlas}
+import mmo.client.graphics.{GlfwEvent, GlfwUtil, KeyboardEvent, TileAtlas}
 import mmo.client.network.{CommandSender, EventReceiver}
-import mmo.common.api.{Constants, Direction, MovementAcked, OtherPlayerConnected, OtherPlayerDisappeared, OtherPlayerDisconnected, PlayerCommand, PlayerId, PlayerPositionsChanged, Pong, SessionEstablished, Teleported}
+import mmo.common.api.{Constants, Direction, MovementAcked, OtherPlayerConnected, OtherPlayerDisappeared, OtherPlayerDisconnected, PlayerCommand, PlayerEvent, PlayerId, PlayerPositionsChanged, Pong, SessionEstablished, Teleported}
 import mmo.common.linear.{Rect, V2}
 import mmo.common.map.GameMap
 
-import java.util.concurrent.atomic.AtomicReference
 import org.lwjgl.glfw.GLFW._
 import org.lwjgl.nanovg.NanoVG._
 import org.lwjgl.nanovg.NanoVGGL3._
@@ -14,9 +13,24 @@ import org.lwjgl.opengl.GL11C._
 import scala.collection.immutable.ArraySeq
 import scala.collection.mutable
 
+object Game {
+  def apply(
+    window: Long,
+    eventReceiver: EventReceiver,
+    commandSender: CommandSender,
+    sessionEstablished: SessionEstablished
+  ): Game = new Game(
+    window = window,
+    eventReceiver = eventReceiver,
+    commandSender = commandSender,
+    playerId = sessionEstablished.playerId,
+    gameMap = sessionEstablished.compactGameMap.toGameMap,
+    playerNames = mutable.Map.from(sessionEstablished.players)
+  )
+}
+
 class Game(
   window: Long,
-  glfwEventsRef: AtomicReference[List[GlfwEvent]],
   eventReceiver: EventReceiver,
   commandSender: CommandSender,
   playerId: PlayerId,
@@ -57,32 +71,33 @@ class Game(
   private val playerStates = mutable.Map.empty[PlayerId, PlayerState]
   private var debugShowHitbox: Boolean = false
 
-  def run(): Unit = {
-    val fpsCounter = new FpsCounter
-    var now: Double = glfwGetTime()
-    var lastFrameTime: Double = now
+  def update(events: List[GlfwEvent], now: Double, dt: Double): Unit = {
+    sendPing(now)
+    handleEvents(events)
 
-    while (!glfwWindowShouldClose(window)) {
-      val events = glfwEventsRef.getAndSet(Nil).reverse
-      update(events, now, now - lastFrameTime)
+    playerStates.mapValuesInPlace { (id, player) =>
+      if (id == playerId) {
+        updateSelfMovement(player = player, dt = dt)
+      } else {
+        updateOtherMovement(player = player, now = now)
+      }
+    }
 
-      render(now)
-      glfwSwapBuffers(window)
-      glfwPollEvents()
-
-      lastFrameTime = now
-      now = glfwGetTime()
-      fpsCounter.endOfFrame(window, now)
+    var nextPlayerEvent = eventReceiver.poll()
+    while (nextPlayerEvent != null) {
+      handleServerEvent(nextPlayerEvent, now = now)
+      nextPlayerEvent = eventReceiver.poll()
     }
   }
 
-  private def update(events: List[GlfwEvent], now: Double, dt: Double): Unit = {
+  private def sendPing(now: Double): Unit =
     if (now - lastPingSent >= 1.0f) {
       commandSender.offer(PlayerCommand.Ping(System.nanoTime()))
       lastPingSent = now
       lastPingRtt = s"RTT: ${eventReceiver.lastPingNanos.get() / 1_000_000L} ms"
     }
 
+  private def handleEvents(events: List[GlfwEvent]): Unit = {
     val oldMovementKeyBits = movementKeyBits
 
     object MovementKeyBit {
@@ -110,7 +125,7 @@ class Game(
 
     if (movementKeyBits != oldMovementKeyBits) {
       val newDirection = MovementKeyBits.directions(movementKeyBits)
-      playerStates.updateWith(playerId)(_.map { state =>
+      val _ = playerStates.updateWith(playerId)(_.map { state =>
         val lookDirection = if (newDirection.isMoving) {
           newDirection.lookDirection
         } else {
@@ -120,118 +135,112 @@ class Game(
         state.copy(direction = newDirection, lookDirection = lookDirection)
       })
     }
+  }
 
-    playerStates.mapValuesInPlace { (id, state) =>
-      if (id == playerId) {
-        if (state.direction.isMoving) {
-          val normal = state.direction.vector
-          val positionChange = (dt * 1.0f * Constants.playerTilePerSecond) *: normal
-          val newPosition = state.position + positionChange
-          val hitbox = Constants.playerHitbox.translate(newPosition)
-          if (gameMap.doesRectCollide(hitbox)) {
-            commandSender.offer(PlayerCommand.Move(state.position, Direction.none, state.lookDirection))
-            state.copy(direction = Direction.none)
-          } else {
-            val hasCrossedTile = newPosition.map(_.floor.toInt) - state.position.map(_.floor.toInt) != V2.zero[Int]
-            if (hasCrossedTile) {
-              commandSender.offer(PlayerCommand.Move(newPosition, state.direction, state.lookDirection))
-            }
-            state.copy(position = newPosition)
-          }
-        } else {
-          state
-        }
+  private def updateSelfMovement(player: PlayerState, dt: Double): PlayerState =
+    if (player.direction.isMoving) {
+      val normal = player.direction.vector
+      val positionChange = (dt * Constants.playerTilePerSecond) *: normal
+      val newPosition = player.position + positionChange
+      val hitbox = Constants.playerHitbox.translate(newPosition)
+      if (gameMap.doesRectCollide(hitbox)) {
+        commandSender.offer(PlayerCommand.Move(player.position, Direction.none, player.lookDirection))
+        player.copy(direction = Direction.none)
       } else {
-        if (state.direction.isMoving) {
-          val interpolationStartPeriod = 0.5f
-          if (now - state.lastServerEventAt <= interpolationStartPeriod) {
-            // Interpolating to predicted position in the near future to avoid jumping on a new update from server
-            val t = (now - state.lastServerEventAt) / interpolationStartPeriod
-            val target = state.lastPositionFromServer + (interpolationStartPeriod * Constants.playerTilePerSecond) *: state.direction.vector
-            val position = ((1 - t) *: state.smoothedPositionAtLastServerUpdate) + (t *: target)
-            state.copy(position = position)
-          } else {
-            val interpolatedMovement = ((now - state.lastServerEventAt) * Constants.playerTilePerSecond) *: state.direction.vector
-            val position = state.lastPositionFromServer + interpolatedMovement
-            state.copy(position = position)
-          }
-        } else {
-          state
+        val hasCrossedTile = newPosition.map(_.floor.toInt) - player.position.map(_.floor.toInt) != V2.zero[Int]
+        if (hasCrossedTile) {
+          commandSender.offer(PlayerCommand.Move(newPosition, player.direction, player.lookDirection))
         }
+        player.copy(position = newPosition)
       }
+    } else {
+      player
     }
 
-    var nextPlayerEvent = eventReceiver.poll()
-    while (nextPlayerEvent != null) {
-      nextPlayerEvent match {
-        case PlayerPositionsChanged(positions) =>
-          positions.foreach { update =>
-            playerStates.updateWith(update.id) {
-              case Some(old) =>
-                if (update.id == playerId) {
-                  Some(old.copy(
-                    position = update.position,
-                    lastPositionFromServer = update.position,
-                    direction = update.direction,
-                    lookDirection = update.lookDirection,
-                    lastServerEventAt = now,
-                    directionLastChangedAt = if (old.lookDirection == update.lookDirection) old.directionLastChangedAt else now
-                  ))
-                } else {
-                  val position = if (update.direction.isMoving) old.position else update.position
-                  Some(old.copy(
-                    position = position,
-                    lastPositionFromServer = update.position,
-                    smoothedPositionAtLastServerUpdate = old.position,
-                    direction = update.direction,
-                    lookDirection = update.lookDirection,
-                    lastServerEventAt = now,
-                    directionLastChangedAt = if (old.lookDirection == update.lookDirection) old.directionLastChangedAt else now
-                  ))
-                }
-              case None =>
-                Some(PlayerState(
+  private def updateOtherMovement(player: PlayerState, now: Double): PlayerState =
+    if (player.direction.isMoving) {
+      val interpolationStartPeriod = 0.5
+      if (now - player.lastServerEventAt <= interpolationStartPeriod) {
+        // Interpolating to predicted position in the near future to avoid jumping on a new update from server
+        val t = (now - player.lastServerEventAt) / interpolationStartPeriod
+        val target = player.lastPositionFromServer + (interpolationStartPeriod * Constants.playerTilePerSecond) *: player.direction.vector
+        val position = ((1 - t) *: player.smoothedPositionAtLastServerUpdate) + (t *: target)
+        player.copy(position = position)
+      } else {
+        val interpolatedMovement = ((now - player.lastServerEventAt) * Constants.playerTilePerSecond) *: player.direction.vector
+        val position = player.lastPositionFromServer + interpolatedMovement
+        player.copy(position = position)
+      }
+    } else {
+      player
+    }
+
+  private def handleServerEvent(event: PlayerEvent, now: Double): Unit =
+    event match {
+      case PlayerPositionsChanged(positions) =>
+        positions.foreach { update =>
+          playerStates.updateWith(update.id) {
+            case Some(old) =>
+              if (update.id == playerId) {
+                Some(old.copy(
                   position = update.position,
                   lastPositionFromServer = update.position,
-                  smoothedPositionAtLastServerUpdate = update.position,
                   direction = update.direction,
                   lookDirection = update.lookDirection,
                   lastServerEventAt = now,
-                  directionLastChangedAt = now
+                  directionLastChangedAt = if (old.lookDirection == update.lookDirection) old.directionLastChangedAt else now
                 ))
-            }
+              } else {
+                val position = if (update.direction.isMoving) old.position else update.position
+                Some(old.copy(
+                  position = position,
+                  lastPositionFromServer = update.position,
+                  smoothedPositionAtLastServerUpdate = old.position,
+                  direction = update.direction,
+                  lookDirection = update.lookDirection,
+                  lastServerEventAt = now,
+                  directionLastChangedAt = if (old.lookDirection == update.lookDirection) old.directionLastChangedAt else now
+                ))
+              }
+            case None =>
+              Some(PlayerState(
+                position = update.position,
+                lastPositionFromServer = update.position,
+                smoothedPositionAtLastServerUpdate = update.position,
+                direction = update.direction,
+                lookDirection = update.lookDirection,
+                lastServerEventAt = now,
+                directionLastChangedAt = now
+              ))
           }
+        }
 
-        case MovementAcked(position) =>
-          playerStates.updateWith(playerId)(_.map(_.copy(
-            lastPositionFromServer = position,
-            lastServerEventAt = now
-          )))
+      case MovementAcked(position) =>
+        val _ = playerStates.updateWith(playerId)(_.map(_.copy(
+          lastPositionFromServer = position,
+          lastServerEventAt = now
+        )))
 
-        case Teleported(compactGameMap) =>
-          gameMap = compactGameMap.toGameMap
-          // Player positions (including ours) on the new map will follow in another event
-          playerStates.clear()
+      case Teleported(compactGameMap) =>
+        gameMap = compactGameMap.toGameMap
+        // Player positions (including ours) on the new map will follow in another event
+        playerStates.clear()
 
-        case OtherPlayerDisappeared(id) =>
-          playerStates -= id
+      case OtherPlayerDisappeared(id) =>
+        playerStates -= id
 
-        case OtherPlayerConnected(id, name) =>
-          playerNames += (id -> name)
+      case OtherPlayerConnected(id, name) =>
+        playerNames += (id -> name)
 
-        case OtherPlayerDisconnected(id) =>
-          playerStates -= id
-          playerNames -= id
+      case OtherPlayerDisconnected(id) =>
+        playerStates -= id
+        playerNames -= id
 
-        case _: Pong | _: SessionEstablished =>
-          throw new RuntimeException("This should not happen")
-
-      }
-      nextPlayerEvent = eventReceiver.poll()
+      case _: Pong | _: SessionEstablished =>
+        throw new RuntimeException("This should not happen")
     }
-  }
 
-  private def render(now: Double): Unit = {
+  def render(now: Double): Unit = {
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)
 
@@ -240,80 +249,13 @@ class Game(
 
     val camera = Camera.centerOn(playerStates.get(playerId).fold(V2.zero[Double])(_.position), gameMap.size, windowGeometry)
 
-    camera.visibleTiles.foreach {
-      case V2(x, y) =>
-        val offset = gameMap.offsetOf(x, y).get
-        gameMap.layers.indices.foreach { layerIndex =>
-          val tileIndex = gameMap.layers(layerIndex)(offset)
-          if (!tileIndex.isEmpty && !gameMap.frontTileIndices(tileIndex.asInt)) {
-            val tileRect = Rect(xy = V2(x.toDouble, y.toDouble), wh = V2(1.0, 1.0))
-            val texturePosition = tileIndex.toTexturePosition
-            tileAtlas.render(
-              nvg,
-              rectOnScreen = camera.transformRect(tileRect),
-              positionOnTexture = texturePosition,
-              scaleFactor = windowGeometry.scaleFactor
-            )
-          }
-        }
-    }
-
-    ArraySeq.from(playerStates.values).sortBy(_.position.y).foreach { player =>
-      val sizeInTiles = V2(1, 2)
-      val playerRect = Rect(xy = player.position - V2(0.0, 1.0), wh = sizeInTiles.map(_.toDouble))
-      camera.transformVisibleRect(playerRect).foreach { screenRect =>
-        charAtlas.render(
-          nvg,
-          rectOnScreen = screenRect,
-          positionOnTexture = V2(player.spriteIndexAt(now), 0),
-          scaleFactor = windowGeometry.scaleFactor
-        )
-      }
-    }
-
-    // TODO deduplicate with rendering non-front tiles
-
-    camera.visibleTiles.foreach {
-      case V2(x, y) =>
-        val offset = gameMap.offsetOf(x, y).get
-        gameMap.layers.indices.foreach { layerIndex =>
-          val tileIndex = gameMap.layers(layerIndex)(offset)
-          if (!tileIndex.isEmpty && gameMap.frontTileIndices(tileIndex.asInt)) {
-            val tileRect = Rect(xy = V2(x.toDouble, y.toDouble), wh = V2(1.0, 1.0))
-            val texturePosition = tileIndex.toTexturePosition
-            tileAtlas.render(
-              nvg,
-              rectOnScreen = camera.transformRect(tileRect),
-              positionOnTexture = texturePosition,
-              scaleFactor = windowGeometry.scaleFactor
-            )
-          }
-        }
-    }
+    renderMapTiles(camera, front = false)
+    renderPlayers(camera, now)
+    renderMapTiles(camera, front = true)
 
     if (debugShowHitbox) {
-      nvgStrokeColor(nvg, GlfwUtil.color(1, 1, 1, 0.6))
-      playerStates.foreach {
-        case (_, player) =>
-          val hitbox = Constants.playerHitbox.translate(player.lastPositionFromServer)
-          camera.transformVisibleRect(hitbox).foreach {
-            case Rect(V2(x, y), V2(w, h)) =>
-              nvgBeginPath(nvg)
-              nvgRect(nvg, x.toFloat, y.toFloat, w.toFloat, h.toFloat)
-              nvgStroke(nvg)
-          }
-      }
-
-      nvgStrokeColor(nvg, GlfwUtil.color(1, 0, 0, 0.6))
-      camera.visibleTiles.foreach {
-        case V2(x, y) =>
-          if (gameMap.isObstacle(x, y)) {
-            val rect = camera.transformRect(Rect(x.toDouble, y.toDouble, 1.0, 1.0))
-            nvgBeginPath(nvg)
-            nvgRect(nvg, rect.x.toFloat, rect.y.toFloat, rect.w.toFloat, rect.h.toFloat)
-            nvgStroke(nvg)
-          }
-      }
+      renderPlayerHitboxes(camera)
+      renderMapHitboxes(camera)
     }
 
     nvgTextAlign(nvg, NVG_ALIGN_TOP | NVG_ALIGN_CENTER)
@@ -334,6 +276,66 @@ class Game(
     nvgEndFrame(nvg)
   }
 
+  private def renderMapTiles(camera: Camera, front: Boolean): Unit =
+    camera.visibleTiles.foreach {
+      case V2(x, y) =>
+        val offset = gameMap.offsetOf(x, y).get
+        gameMap.layers.indices.foreach { layerIndex =>
+          val tileIndex = gameMap.layers(layerIndex)(offset)
+          if (!tileIndex.isEmpty && gameMap.frontTileIndices(tileIndex.asInt) == front) {
+            val tileRect = Rect(xy = V2(x.toDouble, y.toDouble), wh = V2(1.0, 1.0))
+            val texturePosition = tileIndex.toTexturePosition
+            tileAtlas.render(
+              nvg,
+              rectOnScreen = camera.transformRect(tileRect),
+              positionOnTexture = texturePosition,
+              scaleFactor = windowGeometry.scaleFactor
+            )
+          }
+        }
+    }
+
+  private def renderPlayers(camera: Camera, now: Double): Unit =
+    ArraySeq.from(playerStates.values).sortBy(_.position.y).foreach { player =>
+      val sizeInTiles = V2(1, 2)
+      val playerRect = Rect(xy = player.position - V2(0.0, 1.0), wh = sizeInTiles.map(_.toDouble))
+      camera.transformVisibleRect(playerRect).foreach { screenRect =>
+        charAtlas.render(
+          nvg,
+          rectOnScreen = screenRect,
+          positionOnTexture = V2(player.spriteIndexAt(now), 0),
+          scaleFactor = windowGeometry.scaleFactor
+        )
+      }
+    }
+
+  private def renderPlayerHitboxes(camera: Camera): Unit = {
+    nvgStrokeColor(nvg, GlfwUtil.color(1, 1, 1, 0.6))
+    playerStates.foreach {
+      case (_, player) =>
+        val hitbox = Constants.playerHitbox.translate(player.lastPositionFromServer)
+        camera.transformVisibleRect(hitbox).foreach {
+          case Rect(V2(x, y), V2(w, h)) =>
+            nvgBeginPath(nvg)
+            nvgRect(nvg, x.toFloat, y.toFloat, w.toFloat, h.toFloat)
+            nvgStroke(nvg)
+        }
+    }
+  }
+
+  private def renderMapHitboxes(camera: Camera): Unit = {
+    nvgStrokeColor(nvg, GlfwUtil.color(1, 0, 0, 0.6))
+    camera.visibleTiles.foreach {
+      case V2(x, y) =>
+        if (gameMap.isObstacle(x, y)) {
+          val rect = camera.transformRect(Rect(x.toDouble, y.toDouble, 1.0, 1.0))
+          nvgBeginPath(nvg)
+          nvgRect(nvg, rect.x.toFloat, rect.y.toFloat, rect.w.toFloat, rect.h.toFloat)
+          nvgStroke(nvg)
+        }
+    }
+  }
+
   private def renderText(nvg: Long, x: Double, y: Double, str: String): Unit = {
     nvgFillColor(nvg, colors.textShadow)
     val _ = nvgText(nvg, (x + 1).toFloat, (y + 1).toFloat, str)
@@ -346,22 +348,4 @@ class Game(
     val white = GlfwUtil.color(1, 1, 1)
     val textShadow = GlfwUtil.color(0, 0, 0, 0.7)
   }
-}
-
-object Game {
-  def apply(
-    window: Long,
-    glfwEventsRef: AtomicReference[List[GlfwEvent]],
-    eventReceiver: EventReceiver,
-    commandSender: CommandSender,
-    sessionEstablished: SessionEstablished
-  ): Game = new Game(
-    window = window,
-    glfwEventsRef = glfwEventsRef,
-    eventReceiver = eventReceiver,
-    commandSender = commandSender,
-    playerId = sessionEstablished.playerId,
-    gameMap = sessionEstablished.compactGameMap.toGameMap,
-    playerNames = mutable.Map.from(sessionEstablished.players)
-  )
 }
