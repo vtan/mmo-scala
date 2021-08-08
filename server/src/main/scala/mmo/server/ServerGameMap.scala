@@ -1,11 +1,12 @@
 package mmo.server
 
-import mmo.common.api.{CompactGameMap, TileIndex}
+import mmo.common.api.{CompactGameMap, Id, TileIndex}
 import mmo.common.linear.{Rect, V2}
 import mmo.common.map.GameMap
 import mmo.server.tiled.{TiledMap, TiledObject, Tileset}
 
 final case class ServerGameMap(
+  id: Id[ServerGameMap],
   // TODO: store only the obstacle array, not the tile indices
   gameMap: GameMap,
   compactGameMap: CompactGameMap,
@@ -20,7 +21,7 @@ object ServerGameMap {
     targetMapName: String
   )
 
-  def fromTiled(tiledMap: TiledMap, tileset: Tileset): ServerGameMap = {
+  def fromTiled(id: Id[ServerGameMap], tiledMap: TiledMap, tileset: Tileset): ServerGameMap = {
     val size = tiledMap.width * tiledMap.height
 
     val obstaclePositions: Array[Boolean] = Array.fill(size)(false)
@@ -62,6 +63,7 @@ object ServerGameMap {
     )
 
     ServerGameMap(
+      id = id,
       gameMap = gameMap,
       compactGameMap = CompactGameMap.from(gameMap),
       teleports = teleportsBuilder.result()

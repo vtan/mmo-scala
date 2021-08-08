@@ -1,6 +1,6 @@
 package mmo.server
 
-import mmo.common.api.CompactGameMap
+import mmo.common.api.{CompactGameMap, Id}
 import mmo.server.tiled.{TiledMap, Tileset}
 
 import akka.actor.typed.scaladsl.adapter._
@@ -21,12 +21,21 @@ object Main {
   def main(args: Array[String]): Unit = {
     val log = LoggerFactory.getLogger(getClass)
 
-    val map = io.circe.parser.decode[TiledMap](
-      Files.readString(Path.of("data/map.json"))
-    ).toTry.get
     val tileset = io.circe.parser.decode[Tileset](
       Files.readString(Path.of("data/tileset.json"))
     ).toTry.get
+
+    val (mapEntries, mapNameEntries) = Seq("map", "map2").zipWithIndex.map {
+      case (name, index) =>
+        val path = Path.of(s"data/$name.json")
+        val tiledMap = io.circe.parser.decode[TiledMap](Files.readString(path)).toTry.get
+        val id = Id[ServerGameMap](index.toLong)
+        val map = ServerGameMap.fromTiled(id, tiledMap, tileset)
+        log.info(s"Map '$name' is ${calculateMapLength(map.compactGameMap)} bytes")
+        (id -> map, name -> id)
+    }.unzip
+    val maps = mapEntries.toMap
+    val mapNames = mapNameEntries.toMap
 
     val host = "0.0.0.0"
     val port = 10001
@@ -34,10 +43,7 @@ object Main {
     implicit val system: ActorSystem = ActorSystem(name = "system")
     implicit val ec: ExecutionContext = system.dispatcher
 
-    val gameMap = ServerGameMap.fromTiled(map, tileset)
-    log.info(s"Map size is ${calculateMapLength(gameMap.compactGameMap)} bytes")
-
-    val gameActor = new GameActor(gameMap)
+    val gameActor = new GameActor(maps, mapNames)
     val gameActorRef = system.spawn(gameActor.start, name = "game")
 
     val connections: Source[IncomingConnection, Future[ServerBinding]] =

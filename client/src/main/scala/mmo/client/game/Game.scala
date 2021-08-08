@@ -208,15 +208,9 @@ class Game(
                 ))
             }
           }
-        case Teleported(position, compactGameMap) =>
-          playerStates.updateWith(playerId)(_.map { current =>
-            current.copy(
-              position = position,
-              direction = Direction.none,
-              receivedAt = now,
-            )
-          })
+        case Teleported(compactGameMap) =>
           gameMap = compactGameMap.toGameMap
+          playerStates.clear()
 
         case PlayerDisappeared(id) =>
           playerStates -= id
@@ -305,6 +299,17 @@ class Game(
               nvgStroke(nvg)
           }
       }
+
+      nvgStrokeColor(nvg, GlfwUtil.color(1, 0, 0, 0.6))
+      camera.visibleTiles.foreach {
+        case V2(x, y) =>
+          if (gameMap.isObstacle(x, y)) {
+            val rect = camera.transformRect(Rect(x.toDouble, y.toDouble, 1.0, 1.0))
+            nvgBeginPath(nvg)
+            nvgRect(nvg, rect.x.toFloat, rect.y.toFloat, rect.w.toFloat, rect.h.toFloat)
+            nvgStroke(nvg)
+          }
+      }
     }
 
     nvgTextAlign(nvg, NVG_ALIGN_TOP | NVG_ALIGN_CENTER)
@@ -326,11 +331,16 @@ class Game(
   }
 
   private def renderText(nvg: Long, x: Double, y: Double, str: String): Unit = {
-    nvgFillColor(nvg, GlfwUtil.color(0, 0, 0, 0.7))
+    nvgFillColor(nvg, colors.textShadow)
     val _ = nvgText(nvg, (x + 1).toFloat, (y + 1).toFloat, str)
 
-    nvgFillColor(nvg, GlfwUtil.color(1, 1, 1))
+    nvgFillColor(nvg, colors.white)
     val _ = nvgText(nvg, x.toFloat, y.toFloat, str)
+  }
+
+  private object colors {
+    val white = GlfwUtil.color(1, 1, 1)
+    val textShadow = GlfwUtil.color(0, 0, 0, 0.7)
   }
 }
 
