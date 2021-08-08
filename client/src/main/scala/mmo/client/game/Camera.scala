@@ -29,11 +29,21 @@ final case class Camera(
       wh = windowGeometry.pixelPerTile *: tile.wh
     )
 
+  def isRectVisible(rect: Rect[Double]): Boolean =
+    viewport.intersects(rect)
+
+  def transformVisiblePoint(point: V2[Double]): Option[V2[Double]] =
+    if (isPointVisible(point)) {
+      Some(transformPoint(point))
+    } else {
+      None
+    }
+
   def transformPoint(point: V2[Double]): V2[Double] =
     (windowGeometry.pixelPerTile *: (point - viewport.xy)).map(_.floor)
 
-  def isRectVisible(rect: Rect[Double]): Boolean =
-    viewport.intersects(rect)
+  def isPointVisible(point: V2[Double]): Boolean =
+    viewport.contains(point)
 
   def visibleTiles: Iterator[V2[Int]] = {
     val V2(minX, minY) = viewport.xy

@@ -2,24 +2,26 @@ package mmo.client.game
 
 import mmo.client.graphics.{FpsCounter, GlfwEvent, GlfwUtil, KeyboardEvent, TileAtlas}
 import mmo.client.network.{CommandSender, EventReceiver}
-import mmo.common.api.{Constants, Direction, PlayerCommand, PlayerDisconnected, PlayerPositionsChanged, Pong, SessionEstablished}
+import mmo.common.api.{Constants, Direction, PlayerCommand, PlayerConnected, PlayerDisconnected, PlayerId, PlayerPositionsChanged, Pong, SessionEstablished}
 import mmo.common.linear.{Rect, V2}
 import mmo.common.map.GameMap
 
-import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 import org.lwjgl.glfw.GLFW._
 import org.lwjgl.nanovg.NanoVG._
 import org.lwjgl.nanovg.NanoVGGL3._
 import org.lwjgl.opengl.GL11C._
+import scala.collection.immutable.ArraySeq
+import scala.collection.mutable
 
 class Game(
   window: Long,
-  playerId: UUID,
-  gameMap: GameMap,
   glfwEventsRef: AtomicReference[List[GlfwEvent]],
   eventReceiver: EventReceiver,
-  commandSender: CommandSender
+  commandSender: CommandSender,
+  playerId: PlayerId,
+  gameMap: GameMap,
+  playerNames: mutable.Map[PlayerId, String]
 ) {
   private val nvg: Long = nvgCreate(0)
   private val (windowSize: V2[Double], pixelRatio: Double) = GlfwUtil.getWindowGeometry(window)
@@ -52,7 +54,7 @@ class Game(
 
   private var lastPingSent: Double = 0.0f
   private var lastPingRtt: String = ""
-  private val playerStates = scala.collection.mutable.Map.empty[UUID, PlayerState]
+  private val playerStates = mutable.Map.empty[PlayerId, PlayerState]
   private var debugShowHitbox: Boolean = false
 
   def run(): Unit = {
@@ -206,8 +208,11 @@ class Game(
                 ))
             }
           }
+        case PlayerConnected(id, name) =>
+          playerNames += (id -> name)
         case PlayerDisconnected(id) =>
-          playerStates.remove(id)
+          playerStates -= id
+          playerNames -= id
         case _: Pong | _: SessionEstablished =>
           throw new RuntimeException("This should not happen")
 
@@ -243,22 +248,17 @@ class Game(
         }
     }
 
-    nvgTextAlign(nvg, NVG_ALIGN_TOP | NVG_ALIGN_CENTER)
-    playerStates.foreach {
-      case (id, player) =>
-        val sizeInTiles = V2(1, 2)
-        val playerRect = Rect(xy = player.position - V2(0.0, 1.0), wh = sizeInTiles.map(_.toDouble))
-        camera.transformVisibleRect(playerRect).foreach { screenRect =>
-          charAtlas.render(
-            nvg,
-            rectOnScreen = screenRect,
-            positionOnTexture = V2(player.spriteIndexAt(now), 0),
-            scaleFactor = windowGeometry.scaleFactor
-          )
-
-          val playerNamePoint = camera.transformPoint(player.position + V2(0.5, -1.2))
-          renderText(nvg, playerNamePoint.x, playerNamePoint.y, id.toString.take(4))
-        }
+    ArraySeq.from(playerStates.values).sortBy(_.position.y).foreach { player =>
+      val sizeInTiles = V2(1, 2)
+      val playerRect = Rect(xy = player.position - V2(0.0, 1.0), wh = sizeInTiles.map(_.toDouble))
+      camera.transformVisibleRect(playerRect).foreach { screenRect =>
+        charAtlas.render(
+          nvg,
+          rectOnScreen = screenRect,
+          positionOnTexture = V2(player.spriteIndexAt(now), 0),
+          scaleFactor = windowGeometry.scaleFactor
+        )
+      }
     }
 
     // TODO deduplicate with rendering non-front tiles
@@ -295,8 +295,20 @@ class Game(
       }
     }
 
+    nvgTextAlign(nvg, NVG_ALIGN_TOP | NVG_ALIGN_CENTER)
+    playerStates.foreach {
+      case (id, player) =>
+        camera.transformVisiblePoint(player.position + V2(0.5, -1.2)).foreach { playerNamePoint =>
+          renderText(nvg, playerNamePoint.x, playerNamePoint.y, playerNames.getOrElse(id, "???"))
+        }
+    }
+
     nvgTextAlign(nvg, NVG_ALIGN_TOP | NVG_ALIGN_LEFT)
     renderText(nvg, 0, 0, lastPingRtt)
+    renderText(nvg, 0, 40, "Players:")
+    playerNames.values.zipWithIndex.foreach {
+      case (name, i) => renderText(nvg, 0, (40 + (i + 1) * 20).toDouble, name)
+    }
 
     nvgEndFrame(nvg)
   }
@@ -308,4 +320,22 @@ class Game(
     nvgFillColor(nvg, GlfwUtil.color(1, 1, 1))
     val _ = nvgText(nvg, x.toFloat, y.toFloat, str)
   }
+}
+
+object Game {
+  def apply(
+    window: Long,
+    glfwEventsRef: AtomicReference[List[GlfwEvent]],
+    eventReceiver: EventReceiver,
+    commandSender: CommandSender,
+    sessionEstablished: SessionEstablished
+  ): Game = new Game(
+    window = window,
+    glfwEventsRef = glfwEventsRef,
+    eventReceiver = eventReceiver,
+    commandSender = commandSender,
+    playerId = sessionEstablished.playerId,
+    gameMap = sessionEstablished.compactGameMap.toGameMap,
+    playerNames = mutable.Map.from(sessionEstablished.players)
+  )
 }

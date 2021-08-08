@@ -3,7 +3,6 @@ package mmo.common.api
 import mmo.common.linear.V2
 
 import com.sksamuel.avro4s.AvroSchema
-import java.util.UUID
 import org.apache.avro.Schema
 
 sealed trait PlayerEvent
@@ -13,7 +12,8 @@ object PlayerEvent {
 }
 
 final case class SessionEstablished(
-  id: UUID,
+  playerId: PlayerId,
+  players: Seq[(PlayerId, String)],
   compactGameMap: CompactGameMap
 ) extends PlayerEvent
 
@@ -23,7 +23,7 @@ final case class PlayerPositionsChanged(positions: Seq[PlayerPositionsChanged.En
 
 object PlayerPositionsChanged {
   final case class Entry(
-    id: UUID,
+    id: PlayerId,
     position: V2[Double],
     direction: Direction,
     lookDirection: LookDirection,
@@ -31,4 +31,6 @@ object PlayerPositionsChanged {
   )
 }
 
-final case class PlayerDisconnected(id: UUID) extends PlayerEvent
+final case class PlayerConnected(id: PlayerId, name: String) extends PlayerEvent
+
+final case class PlayerDisconnected(id: PlayerId) extends PlayerEvent

@@ -55,8 +55,11 @@ object Main {
       }
     )
 
-    val SessionEstablished(playerId, gameMap) = eventReceiver.take()
-    new Game(window, playerId, gameMap.toGameMap, eventsRef, eventReceiver, commandSender).run()
+    val sessionEstablised = eventReceiver.take() match {
+      case s: SessionEstablished => s
+      case _ => throw new RuntimeException("Unexpected first event type")
+    }
+    Game(window, eventsRef, eventReceiver, commandSender, sessionEstablised).run()
 
     eventReceiverThread.interrupt()
     commandSenderThread.interrupt()

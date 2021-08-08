@@ -1,6 +1,6 @@
 package mmo.server
 
-import mmo.common.api.{Constants, Direction, LookDirection, PlayerCommand, PlayerDisconnected, PlayerEvent, PlayerPositionsChanged, Pong, SessionEstablished}
+import mmo.common.api.{Constants, Direction, LookDirection, PlayerCommand, PlayerConnected, PlayerDisconnected, PlayerEvent, PlayerId, PlayerPositionsChanged, Pong, SessionEstablished}
 import mmo.common.linear.V2
 
 import akka.actor.typed.Behavior
@@ -9,7 +9,8 @@ import akka.stream.scaladsl.SourceQueueWithComplete
 import java.util.UUID
 
 final case class PlayerState(
-  id: UUID,
+  id: PlayerId,
+  name: String,
   position: V2[Double],
   direction: Direction,
   lookDirection: LookDirection,
@@ -19,9 +20,9 @@ final case class PlayerState(
 
 object GameActor {
   sealed trait Message
-  final case class Connected(id: UUID, queue: SourceQueueWithComplete[PlayerEvent]) extends Message
-  final case class PlayerCommandReceived(id: UUID, command: PlayerCommand) extends Message
-  final case class Disconnected(id: UUID) extends Message
+  final case class Connected(id: PlayerId, queue: SourceQueueWithComplete[PlayerEvent]) extends Message
+  final case class PlayerCommandReceived(id: PlayerId, command: PlayerCommand) extends Message
+  final case class Disconnected(id: PlayerId) extends Message
 
   private object positionConstraints {
     // TODO this is flaky
@@ -37,15 +38,18 @@ class GameActor(gameMap: ServerGameMap) {
 
   def start: Behavior[Message] = running(state = Map.empty)
 
-  def running(state: Map[UUID, PlayerState]): Behavior[Message] =
+  def running(state: Map[PlayerId, PlayerState]): Behavior[Message] =
     Behaviors.receiveMessage {
 
       case Connected(id, queue) =>
-        val player = PlayerState(id, V2.zero, Direction.none, LookDirection.down, queue, System.nanoTime())
+        val name = UUID.randomUUID().toString.take(6).toUpperCase
+        val player = PlayerState(id, name, V2.zero, Direction.none, LookDirection.down, queue, System.nanoTime())
+        broadcastPlayerConnection(player, state)
         broadcastPlayerPosition(player, state)
 
         val newState = state.updated(player.id, player)
-        queue.offer(SessionEstablished(id, gameMap.compactGameMap))
+        val playerNames = newState.map { case (id, player) => id -> player.name }.toSeq
+        queue.offer(SessionEstablished(id, playerNames, gameMap.compactGameMap))
         queue.offer(PlayerPositionsChanged(
           newState.values.map(playerStateToEvent(_, force = true)).toSeq
         ))
@@ -98,7 +102,7 @@ class GameActor(gameMap: ServerGameMap) {
         disconnectPlayer(id, state)
     }
 
-  private def disconnectPlayer(id: UUID, state: Map[UUID, PlayerState]): Behavior[Message] = {
+  private def disconnectPlayer(id: PlayerId, state: Map[PlayerId, PlayerState]): Behavior[Message] = {
     val newState = state.removed(id)
     state.get(id).foreach { player =>
       player.queue.complete()
@@ -107,12 +111,17 @@ class GameActor(gameMap: ServerGameMap) {
     running(newState)
   }
 
-  private def broadcastPlayerPosition(player: PlayerState, state: Map[UUID, PlayerState], force: Boolean = false): Unit = {
+  private def broadcastPlayerPosition(player: PlayerState, state: Map[PlayerId, PlayerState], force: Boolean = false): Unit = {
     val event = PlayerPositionsChanged(Seq(playerStateToEvent(player, force)))
     broadcastEvent(event, state)
   }
 
-  private def broadcastEvent(event: PlayerEvent, state: Map[UUID, PlayerState]): Unit =
+  private def broadcastPlayerConnection(player: PlayerState, state: Map[PlayerId, PlayerState]): Unit = {
+    val event = PlayerConnected(player.id, player.name)
+    broadcastEvent(event, state - player.id)
+  }
+
+  private def broadcastEvent(event: PlayerEvent, state: Map[PlayerId, PlayerState]): Unit =
     state.values.foreach(_.queue.offer(event))
 
   private def playerStateToEvent(player: PlayerState, force: Boolean): PlayerPositionsChanged.Entry =
