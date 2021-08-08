@@ -1,15 +1,16 @@
 package mmo.server.tiled
 
-import mmo.common.api.TileIndex
-import mmo.common.map.GameMap
+import mmo.common.linear.{Rect, V2}
 
-import io.circe.Decoder
+import io.circe.{Decoder, Json}
 import io.circe.generic.semiauto.deriveDecoder
 import scala.collection.SortedMap
 
 final case class TiledMap(
   width: Int,
   height: Int,
+  tilewidth: Int,
+  tileheight: Int,
   tilesets: Seq[TilesetRef],
   layers: Seq[Layer]
 ) {
@@ -26,33 +27,6 @@ final case class TiledMap(
         val localId = LocalTileId(id.asInt - tileset.firstgid.asInt)
         localId -> tileset
     }
-
-  def toGameMap(tileset: Tileset): GameMap = {
-    // TODO don't convert to tile indices and then back below
-    val layers = this.layers.map { layer =>
-      layer.data.map(resolveGlobalTileId).map {
-        case Some((localTileId, _)) => TileIndex(localTileId.asInt)
-        case None => TileIndex.empty
-      }.toArray
-    }.toArray
-
-    val obstaclePositions = (0 until width * height).map { position =>
-      layers.exists { layer =>
-        val localTileId = LocalTileId(layer(position).asInt)
-        tileset.tileById.get(localTileId).exists(_.isObstacle)
-      }
-    }.toArray
-
-    val frontTileIndexSet = tileset.tileById.filter(_._2.isFront).map(_._1.asInt).toSet
-
-    GameMap(
-      width = width,
-      height = height,
-      layers = layers,
-      obstaclePositions = obstaclePositions,
-      frontTileIndices = Array.tabulate(tileset.tilecount)(frontTileIndexSet.contains)
-    )
-  }
 }
 
 final case class TilesetRef(
@@ -61,17 +35,56 @@ final case class TilesetRef(
 )
 
 final case class Layer(
-  data: Seq[GlobalTileId]
+  data: Option[Seq[GlobalTileId]],
+  objects: Option[Seq[TiledObject]]
+)
+
+final case class TiledObject(
+  `type`: String,
+  x: Int,
+  y: Int,
+  width: Int,
+  height: Int,
+  properties: Option[Seq[ObjectProperty]]
+) {
+  def rect: Rect[Int] = Rect(x, y, width, height)
+}
+
+final case class ObjectProperty(
+  name: String,
+  value: Json
 )
 
 final case class GlobalTileId(asInt: Int) extends AnyVal {
   def isEmpty: Boolean = asInt == 0
 }
 
+object TiledObject {
+  object Teleport {
+    def unapply(obj: TiledObject): Option[(Rect[Int], V2[Int], String)] =
+      if (obj.`type`.toLowerCase == "teleport") {
+        val properties = obj.properties.toList.flatten
+        for {
+          targetMap <- properties.collectFirst {
+            case ObjectProperty("targetMap", json) => json.asString
+          }.flatten
+          targetX <- properties.collectFirst {
+            case ObjectProperty("targetX", json) => json.asNumber.flatMap(_.toInt)
+          }.flatten
+          targetY <- properties.collectFirst {
+            case ObjectProperty("targetY", json) => json.asNumber.flatMap(_.toInt)
+          }.flatten
+        } yield (obj.rect, V2(targetX, targetY), targetMap)
+      } else {
+        None
+      }
+  }
+}
+
 object TiledMap {
-  implicit val tilesetRefDecoder: Decoder[TilesetRef] = deriveDecoder
-  implicit val layerDecoder: Decoder[Layer] = deriveDecoder
-  implicit val globalTileIdDecoder: Decoder[GlobalTileId] = Decoder.decodeInt.map(GlobalTileId)
+  import io.circe.generic.auto._
+  private implicit val globalTileIdDecoder: Decoder[GlobalTileId] = Decoder.decodeInt.map(GlobalTileId)
+
   implicit val tiledMapDecoder: Decoder[TiledMap] = deriveDecoder
 }
 

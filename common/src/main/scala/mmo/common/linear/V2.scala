@@ -22,6 +22,11 @@ final case class V2[@specialized(Int, Float, Double) T](x: T, y: T) {
     V2(x / rhs.x, y / rhs.y)
   }
 
+  def /(scalar: T)(implicit frac: Fractional[T]): V2[T] = {
+    import frac._
+    V2(x / scalar, y / scalar)
+  }
+
   def *:(scalar: T)(implicit num: Numeric[T]): V2[T] = {
     import num._
     V2(scalar * x, scalar * y)

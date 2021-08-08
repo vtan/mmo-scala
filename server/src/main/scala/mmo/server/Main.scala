@@ -34,7 +34,7 @@ object Main {
     implicit val system: ActorSystem = ActorSystem(name = "system")
     implicit val ec: ExecutionContext = system.dispatcher
 
-    val gameMap = ServerGameMap.from(map.toGameMap(tileset))
+    val gameMap = ServerGameMap.fromTiled(map, tileset)
     log.info(s"Map size is ${calculateMapLength(gameMap.compactGameMap)} bytes")
 
     val gameActor = new GameActor(gameMap)

@@ -11,6 +11,8 @@ object Constants {
     wh = V2(0.85, 0.3)
   )
 
+  val playerHitboxCenter: V2[Double] = playerHitbox.center
+
   val maxMessageBytes: Int = 4096
 
 }

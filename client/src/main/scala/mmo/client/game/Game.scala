@@ -2,7 +2,7 @@ package mmo.client.game
 
 import mmo.client.graphics.{FpsCounter, GlfwEvent, GlfwUtil, KeyboardEvent, TileAtlas}
 import mmo.client.network.{CommandSender, EventReceiver}
-import mmo.common.api.{Constants, Direction, PlayerCommand, PlayerConnected, PlayerDisconnected, PlayerId, PlayerPositionsChanged, Pong, SessionEstablished}
+import mmo.common.api.{Constants, Direction, PlayerCommand, PlayerConnected, PlayerDisappeared, PlayerDisconnected, PlayerId, PlayerPositionsChanged, Pong, SessionEstablished, Teleported}
 import mmo.common.linear.{Rect, V2}
 import mmo.common.map.GameMap
 
@@ -20,7 +20,7 @@ class Game(
   eventReceiver: EventReceiver,
   commandSender: CommandSender,
   playerId: PlayerId,
-  gameMap: GameMap,
+  var gameMap: GameMap,
   playerNames: mutable.Map[PlayerId, String]
 ) {
   private val nvg: Long = nvgCreate(0)
@@ -208,6 +208,18 @@ class Game(
                 ))
             }
           }
+        case Teleported(position, compactGameMap) =>
+          playerStates.updateWith(playerId)(_.map { current =>
+            current.copy(
+              position = position,
+              direction = Direction.none,
+              receivedAt = now,
+            )
+          })
+          gameMap = compactGameMap.toGameMap
+
+        case PlayerDisappeared(id) =>
+          playerStates -= id
         case PlayerConnected(id, name) =>
           playerNames += (id -> name)
         case PlayerDisconnected(id) =>
