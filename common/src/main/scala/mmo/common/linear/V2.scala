@@ -57,8 +57,8 @@ final case class V2[@specialized(Int, Float, Double) T](x: T, y: T) {
 
 object V2 {
 
-  def zero[T](implicit num: Numeric[T]): V2[T] =
-    V2(num.zero, num.zero)
+  val zero: V2[Double] = V2(0, 0)
+  val intZero: V2[Int] = V2(0, 0)
 
   def unitWithAngle(angle: Double): V2[Double] =
     V2(Math.cos(angle), Math.sin(angle))
@@ -71,4 +71,7 @@ object V2 {
 
   def angle(v: V2[Double]): Double =
     Math.atan2(v.y, v.x)
+
+  def lerp(t: Double, x: V2[Double], y: V2[Double]): V2[Double] =
+    (1 - t) *: x + t *: y
 }

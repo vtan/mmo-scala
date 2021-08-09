@@ -49,37 +49,26 @@ class Game(
   private val font: Int = nvgCreateFont(nvg, "Roboto", "assets/roboto/Roboto-Regular.ttf")
   nvgFontFaceId(nvg, font)
 
-  object MovementKeyBits {
-    val left: Int = 1 << 0
-    val right: Int = 1 << 1
-    val up: Int = 1 << 2
-    val down: Int = 1 << 3
-
-    val directions: Array[Direction] = Array(
-      Direction.none,
-      Direction.left,
-      Direction.right, Direction.none,
-      Direction.up, Direction.leftUp, Direction.rightUp, Direction.none,
-      Direction.down, Direction.leftDown, Direction.rightDown, Direction.none,
-      Direction.none, Direction.none, Direction.none, Direction.none
-    )
-  }
   private var movementKeyBits: Int = 0
 
   private var lastPingSent: Double = 0.0f
   private var lastPingRtt: String = ""
-  private val playerStates = mutable.Map.empty[PlayerId, PlayerState]
+  private val entityStates = mutable.Map.empty[PlayerId, EntityState]
   private var debugShowHitbox: Boolean = false
 
   def update(events: List[GlfwEvent], now: Double, dt: Double): Unit = {
     sendPing(now)
     handleEvents(events)
 
-    playerStates.mapValuesInPlace { (id, player) =>
-      if (id == playerId) {
-        updateSelfMovement(player = player, dt = dt)
+    entityStates.mapValuesInPlace { (id, entity) =>
+      if (entity.direction.isMoving) {
+        if (id == playerId) {
+          updateSelfMovement(self = entity, dt = dt)
+        } else {
+          updateOtherMovement(entity = entity, now = now)
+        }
       } else {
-        updateOtherMovement(player = player, now = now)
+        entity
       }
     }
 
@@ -100,24 +89,14 @@ class Game(
   private def handleEvents(events: List[GlfwEvent]): Unit = {
     val oldMovementKeyBits = movementKeyBits
 
-    object MovementKeyBit {
-      def unapply(keycode: Int): Option[Int] =
-        keycode match {
-          case GLFW_KEY_LEFT => Some(MovementKeyBits.left)
-          case GLFW_KEY_RIGHT => Some(MovementKeyBits.right)
-          case GLFW_KEY_UP => Some(MovementKeyBits.up)
-          case GLFW_KEY_DOWN => Some(MovementKeyBits.down)
-          case _ => None
-        }
-    }
     events.foreach {
-      case KeyboardEvent(MovementKeyBit(bit), KeyboardEvent.Press) =>
+      case KeyboardEvent(MovementKeyBits.Bit(bit), KeyboardEvent.Press) =>
         movementKeyBits |= bit
 
-      case KeyboardEvent(MovementKeyBit(bit), KeyboardEvent.Release) =>
+      case KeyboardEvent(MovementKeyBits.Bit(bit), KeyboardEvent.Release) =>
         movementKeyBits &= ~bit
 
-      case KeyboardEvent(GLFW_KEY_F2, KeyboardEvent.Release) =>
+      case KeyboardEvent(GLFW_KEY_F2, KeyboardEvent.Press) =>
         debugShowHitbox = !debugShowHitbox
 
       case _ => ()
@@ -125,7 +104,7 @@ class Game(
 
     if (movementKeyBits != oldMovementKeyBits) {
       val newDirection = MovementKeyBits.directions(movementKeyBits)
-      val _ = playerStates.updateWith(playerId)(_.map { state =>
+      val _ = entityStates.updateWith(playerId)(_.map { state =>
         val lookDirection = if (newDirection.isMoving) {
           newDirection.lookDirection
         } else {
@@ -137,86 +116,53 @@ class Game(
     }
   }
 
-  private def updateSelfMovement(player: PlayerState, dt: Double): PlayerState =
-    if (player.direction.isMoving) {
-      val normal = player.direction.vector
-      val positionChange = (dt * Constants.playerTilePerSecond) *: normal
-      val newPosition = player.position + positionChange
-      val hitbox = Constants.playerHitbox.translate(newPosition)
-      if (gameMap.doesRectCollide(hitbox)) {
-        commandSender.offer(PlayerCommand.Move(player.position, Direction.none, player.lookDirection))
-        player.copy(direction = Direction.none)
-      } else {
-        val hasCrossedTile = newPosition.map(_.floor.toInt) - player.position.map(_.floor.toInt) != V2.zero[Int]
-        if (hasCrossedTile) {
-          commandSender.offer(PlayerCommand.Move(newPosition, player.direction, player.lookDirection))
-        }
-        player.copy(position = newPosition)
-      }
+  private def updateSelfMovement(self: EntityState, dt: Double): EntityState = {
+    val normal = self.direction.vector
+    val positionChange = (dt * Constants.entityTilePerSecond) *: normal
+    val newPosition = self.position + positionChange
+    val hitbox = Constants.playerHitbox.translate(newPosition)
+    if (gameMap.doesRectCollide(hitbox)) {
+      commandSender.offer(PlayerCommand.Move(self.position, Direction.none, self.lookDirection))
+      self.copy(direction = Direction.none)
     } else {
-      player
+      val hasCrossedTile = newPosition.map(_.floor.toInt) - self.position.map(_.floor.toInt) != V2.intZero
+      if (hasCrossedTile) {
+        commandSender.offer(PlayerCommand.Move(newPosition, self.direction, self.lookDirection))
+      }
+      self.copy(position = newPosition)
     }
+  }
 
-  private def updateOtherMovement(player: PlayerState, now: Double): PlayerState =
-    if (player.direction.isMoving) {
-      val interpolationStartPeriod = 0.5
-      if (now - player.lastServerEventAt <= interpolationStartPeriod) {
-        // Interpolating to predicted position in the near future to avoid jumping on a new update from server
-        val t = (now - player.lastServerEventAt) / interpolationStartPeriod
-        val target = player.lastPositionFromServer + (interpolationStartPeriod * Constants.playerTilePerSecond) *: player.direction.vector
-        val position = ((1 - t) *: player.smoothedPositionAtLastServerUpdate) + (t *: target)
-        player.copy(position = position)
-      } else {
-        val interpolatedMovement = ((now - player.lastServerEventAt) * Constants.playerTilePerSecond) *: player.direction.vector
-        val position = player.lastPositionFromServer + interpolatedMovement
-        player.copy(position = position)
-      }
+  private def updateOtherMovement(entity: EntityState, now: Double): EntityState = {
+    // TODO: do not update entities outside the camera
+    val interpolating = now - entity.lastServerEventAt <= EntityState.interpolationPeriod
+    if (interpolating) {
+      // Interpolating to predicted position in the near future to avoid jumping on a new update from server
+      val t = (now - entity.lastServerEventAt) / EntityState.interpolationPeriod
+      val position = V2.lerp(t, entity.interpolationSource, entity.interpolationTarget)
+      entity.copy(position = position)
     } else {
-      player
+      val extrapolatedMovement = ((now - entity.lastServerEventAt) * Constants.entityTilePerSecond) *: entity.direction.vector
+      val position = entity.lastPositionFromServer + extrapolatedMovement
+      entity.copy(position = position)
     }
+  }
 
   private def handleServerEvent(event: PlayerEvent, now: Double): Unit =
     event match {
       case PlayerPositionsChanged(positions) =>
         positions.foreach { update =>
-          playerStates.updateWith(update.id) {
+          entityStates.updateWith(update.id) {
             case Some(old) =>
-              if (update.id == playerId) {
-                Some(old.copy(
-                  position = update.position,
-                  lastPositionFromServer = update.position,
-                  direction = update.direction,
-                  lookDirection = update.lookDirection,
-                  lastServerEventAt = now,
-                  directionLastChangedAt = if (old.lookDirection == update.lookDirection) old.directionLastChangedAt else now
-                ))
-              } else {
-                val position = if (update.direction.isMoving) old.position else update.position
-                Some(old.copy(
-                  position = position,
-                  lastPositionFromServer = update.position,
-                  smoothedPositionAtLastServerUpdate = old.position,
-                  direction = update.direction,
-                  lookDirection = update.lookDirection,
-                  lastServerEventAt = now,
-                  directionLastChangedAt = if (old.lookDirection == update.lookDirection) old.directionLastChangedAt else now
-                ))
-              }
+              val calculateInterpolation = update.id != playerId
+              Some(old.applyPositionChange(update, now, calculateInterpolation))
             case None =>
-              Some(PlayerState(
-                position = update.position,
-                lastPositionFromServer = update.position,
-                smoothedPositionAtLastServerUpdate = update.position,
-                direction = update.direction,
-                lookDirection = update.lookDirection,
-                lastServerEventAt = now,
-                directionLastChangedAt = now
-              ))
+              Some(EntityState.newAt(update, now))
           }
         }
 
       case MovementAcked(position) =>
-        val _ = playerStates.updateWith(playerId)(_.map(_.copy(
+        val _ = entityStates.updateWith(playerId)(_.map(_.copy(
           lastPositionFromServer = position,
           lastServerEventAt = now
         )))
@@ -224,16 +170,16 @@ class Game(
       case Teleported(compactGameMap) =>
         gameMap = compactGameMap.toGameMap
         // Player positions (including ours) on the new map will follow in another event
-        playerStates.clear()
+        entityStates.clear()
 
       case OtherPlayerDisappeared(id) =>
-        playerStates -= id
+        entityStates -= id
 
       case OtherPlayerConnected(id, name) =>
         playerNames += (id -> name)
 
       case OtherPlayerDisconnected(id) =>
-        playerStates -= id
+        entityStates -= id
         playerNames -= id
 
       case _: Pong | _: SessionEstablished =>
@@ -247,10 +193,10 @@ class Game(
     nvgBeginFrame(nvg, windowSize.x.toFloat, windowSize.y.toFloat, pixelRatio.toFloat)
     nvgFontSize(nvg, 20)
 
-    val camera = Camera.centerOn(playerStates.get(playerId).fold(V2.zero[Double])(_.position), gameMap.size, windowGeometry)
+    val camera = Camera.centerOn(entityStates.get(playerId).fold(V2.zero)(_.position), gameMap.size, windowGeometry)
 
     renderMapTiles(camera, front = false)
-    renderPlayers(camera, now)
+    renderEntities(camera, now)
     renderMapTiles(camera, front = true)
 
     if (debugShowHitbox) {
@@ -259,7 +205,7 @@ class Game(
     }
 
     nvgTextAlign(nvg, NVG_ALIGN_TOP | NVG_ALIGN_CENTER)
-    playerStates.foreach {
+    entityStates.foreach {
       case (id, player) =>
         camera.transformVisiblePoint(player.position + V2(0.5, -1.2)).foreach { playerNamePoint =>
           renderText(nvg, playerNamePoint.x, playerNamePoint.y, playerNames.getOrElse(id, "???"))
@@ -295,15 +241,15 @@ class Game(
         }
     }
 
-  private def renderPlayers(camera: Camera, now: Double): Unit =
-    ArraySeq.from(playerStates.values).sortBy(_.position.y).foreach { player =>
+  private def renderEntities(camera: Camera, now: Double): Unit =
+    ArraySeq.from(entityStates.values).sortBy(_.position.y).foreach { entity =>
       val sizeInTiles = V2(1, 2)
-      val playerRect = Rect(xy = player.position - V2(0.0, 1.0), wh = sizeInTiles.map(_.toDouble))
-      camera.transformVisibleRect(playerRect).foreach { screenRect =>
+      val entityRect = Rect(xy = entity.position - V2(0.0, 1.0), wh = sizeInTiles.map(_.toDouble))
+      camera.transformVisibleRect(entityRect).foreach { screenRect =>
         charAtlas.render(
           nvg,
           rectOnScreen = screenRect,
-          positionOnTexture = V2(player.spriteIndexAt(now), 0),
+          positionOnTexture = V2(entity.spriteIndexAt(now), 0),
           scaleFactor = windowGeometry.scaleFactor
         )
       }
@@ -311,7 +257,7 @@ class Game(
 
   private def renderPlayerHitboxes(camera: Camera): Unit = {
     nvgStrokeColor(nvg, GlfwUtil.color(1, 1, 1, 0.6))
-    playerStates.foreach {
+    entityStates.foreach {
       case (_, player) =>
         val hitbox = Constants.playerHitbox.translate(player.lastPositionFromServer)
         camera.transformVisibleRect(hitbox).foreach {
