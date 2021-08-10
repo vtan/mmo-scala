@@ -1,6 +1,6 @@
 package mmo.client.game
 
-import mmo.common.api.{Constants, Direction, LookDirection, PlayerPositionsChanged}
+import mmo.common.api.{Constants, Direction, EntityPositionsChanged, LookDirection}
 import mmo.common.linear.V2
 
 final case class EntityState(
@@ -14,7 +14,7 @@ final case class EntityState(
   lastServerEventAt: Double
 ) {
 
-  def applyPositionChange(update: PlayerPositionsChanged.Entry, now: Double, calculateInterpolation: Boolean): EntityState =
+  def applyPositionChange(update: EntityPositionsChanged.Entry, now: Double, calculateInterpolation: Boolean): EntityState =
     copy(
       position = update.position,
       lastPositionFromServer = update.position,
@@ -35,7 +35,7 @@ final case class EntityState(
       }
     )
 
-  def spriteIndexAt(time: Double): Int =
+  def spriteOffsetAt(time: Double): Int =
     if (direction.isMoving) {
       val offset = (((time - directionLastChangedAt) / 0.15f) % 4).toInt match {
         case 0 => 1
@@ -52,7 +52,7 @@ final case class EntityState(
 object EntityState {
   val interpolationPeriod = 0.5
 
-  def newAt(update: PlayerPositionsChanged.Entry, now: Double): EntityState =
+  def newAt(update: EntityPositionsChanged.Entry, now: Double): EntityState =
     EntityState(
       position = update.position,
       lastPositionFromServer = update.position,

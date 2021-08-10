@@ -1,4 +1,4 @@
-package mmo.server
+package mmo.server.server
 
 import mmo.common.api.{Constants, PlayerCommand, PlayerEvent, PlayerId}
 

@@ -79,6 +79,20 @@ object TiledObject {
         None
       }
   }
+
+  object MobSpawn {
+    def unapply(obj: TiledObject): Option[(Rect[Int], String)] =
+      if (obj.`type`.toLowerCase == "mob spawn") {
+        val properties = obj.properties.toList.flatten
+        for {
+          templateName <- properties.collectFirst {
+            case ObjectProperty("mobTemplate", json) => json.asString
+          }.flatten
+        } yield (obj.rect, templateName)
+      } else {
+        None
+      }
+  }
 }
 
 object TiledMap {

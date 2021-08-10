@@ -1,4 +1,4 @@
-package mmo.server
+package mmo.server.game
 
 import mmo.common.api.{CompactGameMap, Id, TileIndex}
 import mmo.common.linear.{Rect, V2}
@@ -10,7 +10,8 @@ final case class ServerGameMap(
   // TODO: store only the obstacle array, not the tile indices
   gameMap: GameMap,
   compactGameMap: CompactGameMap,
-  teleports: Seq[ServerGameMap.Teleport]
+  teleports: Seq[ServerGameMap.Teleport],
+  mobSpawns: Seq[ServerGameMap.MobSpawn]
 )
 
 object ServerGameMap {
@@ -21,12 +22,18 @@ object ServerGameMap {
     targetMapName: String
   )
 
+  final case class MobSpawn(
+    position: V2[Double],
+    templateName: String
+  )
+
   def fromTiled(id: Id[ServerGameMap], tiledMap: TiledMap, tileset: Tileset): ServerGameMap = {
     val size = tiledMap.width * tiledMap.height
 
     val obstaclePositions: Array[Boolean] = Array.fill(size)(false)
     val layersBuilder = Array.newBuilder[Array[TileIndex]]
     val teleportsBuilder = Seq.newBuilder[ServerGameMap.Teleport]
+    val mobSpawnBuilder = Seq.newBuilder[ServerGameMap.MobSpawn]
 
     tiledMap.layers.foreach { layer =>
       layer.data.foreach { data =>
@@ -47,6 +54,9 @@ object ServerGameMap {
         case TiledObject.Teleport(pixelRect, targetPosition, targetMapName) =>
           val rect = pixelRect.map(_.toDouble / tiledMap.tilewidth.toDouble)
           teleportsBuilder += ServerGameMap.Teleport(rect, targetPosition.map(_.toDouble), targetMapName)
+        case TiledObject.MobSpawn(pixelPosition, templateName) =>
+          val position = pixelPosition.xy.map(_.toDouble / tiledMap.tilewidth.toDouble)
+          mobSpawnBuilder += ServerGameMap.MobSpawn(position, templateName)
 
         case _ => ()
       })
@@ -66,7 +76,8 @@ object ServerGameMap {
       id = id,
       gameMap = gameMap,
       compactGameMap = CompactGameMap.from(gameMap),
-      teleports = teleportsBuilder.result()
+      teleports = teleportsBuilder.result(),
+      mobSpawns = mobSpawnBuilder.result()
     )
   }
 }

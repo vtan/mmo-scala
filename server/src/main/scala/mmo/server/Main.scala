@@ -1,6 +1,8 @@
 package mmo.server
 
-import mmo.common.api.{CompactGameMap, Id}
+import mmo.common.api.{CompactGameMap, EntityAppearance, Id}
+import mmo.server.game.{MobTemplate, ServerGameMap}
+import mmo.server.server.{GameActor, SessionFlow}
 import mmo.server.tiled.{TiledMap, Tileset}
 
 import akka.actor.typed.scaladsl.adapter._
@@ -20,6 +22,7 @@ object Main {
 
   def main(args: Array[String]): Unit = {
     val log = LoggerFactory.getLogger(getClass)
+    log.info("Starting server")
 
     val tileset = io.circe.parser.decode[Tileset](
       Files.readString(Path.of("data/tileset.json"))
@@ -36,6 +39,17 @@ object Main {
     }.unzip
     val maps = mapEntries.toMap
     val mapNames = mapNameEntries.toMap
+    // TODO: read from json
+    val mobTemplates = Seq(
+      MobTemplate(
+        name = "green-slime",
+        appearance = EntityAppearance(spriteOffset = 32)
+      ),
+      MobTemplate(
+        name = "blue-slime",
+        appearance = EntityAppearance(spriteOffset = 33)
+      )
+    ).map(t => t.name -> t).toMap
 
     val host = "0.0.0.0"
     val port = 10001
@@ -43,7 +57,7 @@ object Main {
     implicit val system: ActorSystem = ActorSystem(name = "system")
     implicit val ec: ExecutionContext = system.dispatcher
 
-    val gameActor = new GameActor(maps, mapNames)
+    val gameActor = new GameActor(maps, mapNames, mobTemplates)
     val gameActorRef = system.spawn(gameActor.start, name = "game")
 
     val connections: Source[IncomingConnection, Future[ServerBinding]] =

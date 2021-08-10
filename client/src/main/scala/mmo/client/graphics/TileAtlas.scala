@@ -10,10 +10,12 @@ final case class TileAtlas(
   imageWidth: Int,
   imageHeight: Int
 ) {
+  private val atlasWidth = imageWidth / TileAtlas.tileSize
 
-  def render(nvg: Long, rectOnScreen: Rect[Double], positionOnTexture: V2[Int], scaleFactor: Int): Unit = {
+  def render(nvg: Long, rectOnScreen: Rect[Double], tileIndex: Int, scaleFactor: Int): Unit = {
     // See https://github.com/memononen/nanovg/issues/348
 
+    val positionOnTexture = V2(tileIndex % atlasWidth, tileIndex / atlasWidth)
     val textureOffset = ((scaleFactor * TileAtlas.tileSize) *: positionOnTexture).map(_.toDouble)
     val patternPosition = rectOnScreen.xy - textureOffset
     val _ = nvgImagePattern(

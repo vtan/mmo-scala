@@ -2,7 +2,7 @@ package mmo.client.game
 
 import mmo.client.graphics.{GlfwEvent, GlfwUtil, KeyboardEvent, TileAtlas}
 import mmo.client.network.{CommandSender, EventReceiver}
-import mmo.common.api.{Constants, Direction, MovementAcked, OtherPlayerConnected, OtherPlayerDisappeared, OtherPlayerDisconnected, PlayerCommand, PlayerEvent, PlayerId, PlayerPositionsChanged, Pong, SessionEstablished, Teleported}
+import mmo.common.api._
 import mmo.common.linear.{Rect, V2}
 import mmo.common.map.GameMap
 
@@ -53,16 +53,17 @@ class Game(
 
   private var lastPingSent: Double = 0.0f
   private var lastPingRtt: String = ""
-  private val entityStates = mutable.Map.empty[PlayerId, EntityState]
+  private val entityStates = mutable.Map.empty[EntityId, EntityState]
+  private val mobAppearances = mutable.Map.empty[MobId, EntityAppearance]
   private var debugShowHitbox: Boolean = false
 
   def update(events: List[GlfwEvent], now: Double, dt: Double): Unit = {
     sendPing(now)
     handleEvents(events)
 
-    entityStates.mapValuesInPlace { (id, entity) =>
+    entityStates.mapValuesInPlace { (entityId, entity) =>
       if (entity.direction.isMoving) {
-        if (id == playerId) {
+        if (entityId == playerId) {
           updateSelfMovement(self = entity, dt = dt)
         } else {
           updateOtherMovement(entity = entity, now = now)
@@ -150,11 +151,11 @@ class Game(
 
   private def handleServerEvent(event: PlayerEvent, now: Double): Unit =
     event match {
-      case PlayerPositionsChanged(positions) =>
+      case EntityPositionsChanged(positions) =>
         positions.foreach { update =>
-          entityStates.updateWith(update.id) {
+          entityStates.updateWith(update.entityId) {
             case Some(old) =>
-              val calculateInterpolation = update.id != playerId
+              val calculateInterpolation = update.entityId != playerId
               Some(old.applyPositionChange(update, now, calculateInterpolation))
             case None =>
               Some(EntityState.newAt(update, now))
@@ -171,6 +172,7 @@ class Game(
         gameMap = compactGameMap.toGameMap
         // Player positions (including ours) on the new map will follow in another event
         entityStates.clear()
+        mobAppearances.clear()
 
       case OtherPlayerDisappeared(id) =>
         entityStates -= id
@@ -181,6 +183,9 @@ class Game(
       case OtherPlayerDisconnected(id) =>
         entityStates -= id
         playerNames -= id
+
+      case MobsAppeared(mobs) =>
+        mobAppearances ++= mobs
 
       case _: Pong | _: SessionEstablished =>
         throw new RuntimeException("This should not happen")
@@ -206,10 +211,11 @@ class Game(
 
     nvgTextAlign(nvg, NVG_ALIGN_TOP | NVG_ALIGN_CENTER)
     entityStates.foreach {
-      case (id, player) =>
+      case (id: PlayerId, player) =>
         camera.transformVisiblePoint(player.position + V2(0.5, -1.2)).foreach { playerNamePoint =>
           renderText(nvg, playerNamePoint.x, playerNamePoint.y, playerNames.getOrElse(id, "???"))
         }
+      case (_: MobId, _) => ()
     }
 
     nvgTextAlign(nvg, NVG_ALIGN_TOP | NVG_ALIGN_LEFT)
@@ -230,30 +236,39 @@ class Game(
           val tileIndex = gameMap.layers(layerIndex)(offset)
           if (!tileIndex.isEmpty && gameMap.frontTileIndices(tileIndex.asInt) == front) {
             val tileRect = Rect(xy = V2(x.toDouble, y.toDouble), wh = V2(1.0, 1.0))
-            val texturePosition = tileIndex.toTexturePosition
             tileAtlas.render(
               nvg,
               rectOnScreen = camera.transformRect(tileRect),
-              positionOnTexture = texturePosition,
+              tileIndex = tileIndex.asInt,
               scaleFactor = windowGeometry.scaleFactor
             )
           }
         }
     }
 
-  private def renderEntities(camera: Camera, now: Double): Unit =
-    ArraySeq.from(entityStates.values).sortBy(_.position.y).foreach { entity =>
-      val sizeInTiles = V2(1, 2)
-      val entityRect = Rect(xy = entity.position - V2(0.0, 1.0), wh = sizeInTiles.map(_.toDouble))
-      camera.transformVisibleRect(entityRect).foreach { screenRect =>
-        charAtlas.render(
-          nvg,
-          rectOnScreen = screenRect,
-          positionOnTexture = V2(entity.spriteIndexAt(now), 0),
-          scaleFactor = windowGeometry.scaleFactor
-        )
-      }
+  private def renderEntities(camera: Camera, now: Double): Unit = {
+    val entities = entityStates.toArray
+    entities.sortInPlaceBy(_._2.position.y)
+    entities.foreach {
+      case (entityId, entity) =>
+        val (entityRect, baseSpriteIndex) = entityId match {
+          case PlayerId(_) =>
+            val sizeInTiles = V2(1, 2)
+            val rect = Rect(xy = entity.position - V2(0.0, 1.0), wh = sizeInTiles.map(_.toDouble))
+            (rect, 0)
+          case mobId: MobId =>
+            (Rect(xy = entity.position, V2(1.0, 1.0)), mobAppearances(mobId).spriteOffset)
+        }
+        camera.transformVisibleRect(entityRect).foreach { screenRect =>
+          charAtlas.render(
+            nvg,
+            rectOnScreen = screenRect,
+            tileIndex = baseSpriteIndex + entity.spriteOffsetAt(now),
+            scaleFactor = windowGeometry.scaleFactor
+          )
+        }
     }
+  }
 
   private def renderPlayerHitboxes(camera: Camera): Unit = {
     nvgStrokeColor(nvg, GlfwUtil.color(1, 1, 1, 0.6))
