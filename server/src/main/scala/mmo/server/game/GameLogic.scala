@@ -2,6 +2,7 @@ package mmo.server.game
 
 import mmo.common.api._
 import mmo.common.linear.{Rect, V2}
+import mmo.server.game.ServerGameMap.MobSpawn
 
 import akka.stream.scaladsl.SourceQueueWithComplete
 import java.util.UUID
@@ -21,22 +22,11 @@ class GameLogic(
   }
 
   def initialGameState: GameState = {
-    val mobs = maps.values.flatMap { map =>
-      map.mobSpawns.map { mobSpawn =>
-        val template = mobTemplates.getOrElse(
-          mobSpawn.templateName,
-          throw new IllegalStateException(s"Cannot resolve mob template name: ${mobSpawn.templateName}")
-        )
-        Mob(
-          id = MobId.nextId(),
-          mapId = map.id,
-          position = mobSpawn.position,
-          lookDirection = LookDirection.down,
-          template = template
-        )
-      }
-    }
-    GameState.empty.copy(mobs = mobs.map(m => m.id -> m).toMap)
+    val mobs = maps.values.flatMap(_.mobSpawns.map(spawnMob))
+    GameState.empty.copy(
+      serverTime = ServerTime.now,
+      mobs = mobs.map(m => m.id -> m).toMap
+    )
   }
 
   def playerConnected(playerId: PlayerId, queue: SourceQueueWithComplete[PlayerEvent])(state: GameState): GameState = {
@@ -124,6 +114,24 @@ class GameLogic(
     newState
   }
 
+  def timerTicked(state: GameState): GameState = {
+    val (mobsToRespawn, remaining) = state.mobsToRespawn.partition(_._1.isBefore(state.serverTime))
+    val newMobs = mobsToRespawn.map(_._2).map(spawnMob)
+    newMobs.foreach { mob =>
+      val (positionChange, appearance) = newMobToEvents(mob)
+      state.players.values
+        .filter(_.mapId == mob.mapId)
+        .foreach { player =>
+          player.queue.offer(EntityPositionsChanged(Seq(positionChange)))
+          player.queue.offer(MobsAppeared(Seq(appearance)))
+        }
+    }
+    state.copy(
+      mobsToRespawn = remaining,
+      mobs = state.mobs ++ newMobs.map(m => m.id -> m).toMap
+    )
+  }
+
   private def broadcastPlayerPosition(player: PlayerState, players: Iterable[PlayerState], ack: Boolean): Unit = {
     val toOthers = EntityPositionsChanged(Seq(playerStateToEvent(player)))
     val toPlayer = if (ack) MovementAcked(player.position) else toOthers
@@ -141,19 +149,11 @@ class GameLogic(
       val isOnTargetMap = recipient.mapId == player.mapId
       val isOnPreviousMap = previousMapId.contains(recipient.mapId)
 
-      val event: List[PlayerEvent] = if (recipient.id == player.id) {
+      val event: Seq[PlayerEvent] = if (recipient.id == player.id) {
         val playersOnMap = state.players.filter(_._2.mapId == player.mapId).values
         val (mobPositions, mobAppearances) = state.mobs.values
           .filter(_.mapId == player.mapId)
-          .map { mob =>
-            val positionChanged = EntityPositionsChanged.Entry(
-              entityId = mob.id,
-              position = mob.position,
-              lookDirection = mob.lookDirection,
-              direction = Direction.none
-            )
-            (positionChanged, mob.id -> mob.template.appearance)
-          }
+          .map(newMobToEvents)
           .unzip
 
         val entities = playersOnMap.map(playerStateToEvent) ++ mobPositions
@@ -178,6 +178,16 @@ class GameLogic(
   private def playerStateToEvent(player: PlayerState): EntityPositionsChanged.Entry =
     EntityPositionsChanged.Entry(player.id, player.position, player.direction, player.lookDirection)
 
+  private def newMobToEvents(mob: Mob): (EntityPositionsChanged.Entry, (MobId, EntityAppearance)) = {
+    val positionChanged = EntityPositionsChanged.Entry(
+      entityId = mob.id,
+      position = mob.position,
+      lookDirection = mob.lookDirection,
+      direction = Direction.none
+    )
+    (positionChanged, mob.id -> mob.template.appearance)
+  }
+
   private def findTeleportAt(
     oldPosition: V2[Double],
     newPosition: V2[Double],
@@ -192,6 +202,21 @@ class GameLogic(
     } yield (teleport, map)
   }
 
+  private def spawnMob(mobSpawn: MobSpawn) = {
+    val template = mobTemplates.getOrElse(
+      mobSpawn.templateName,
+      throw new IllegalStateException(s"Cannot resolve mob template name: ${mobSpawn.templateName}")
+    )
+    Mob(
+      id = MobId.nextId(),
+      mapId = mobSpawn.mapId,
+      position = mobSpawn.position,
+      lookDirection = LookDirection.down,
+      template = template,
+      spawn = mobSpawn
+    )
+  }
+
   private def killMobWithPlayer(player: PlayerState)(state: GameState): GameState = {
     val (killed, remaining) = state.mobs.partition {
       case (_, mob) =>
@@ -201,6 +226,9 @@ class GameLogic(
     killed.values.foreach { mob =>
       broadcastEvent(MobDisappeared(mob.id), state.players.values.filter(_.mapId == player.mapId))
     }
-    state.copy(mobs = remaining)
+    state.copy(
+      mobs = remaining,
+      mobsToRespawn = state.mobsToRespawn ++ (killed.values.map(state.serverTime.plusSeconds(5) -> _.spawn).toVector)
+    )
   }
 }

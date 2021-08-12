@@ -23,6 +23,7 @@ object ServerGameMap {
   )
 
   final case class MobSpawn(
+    mapId: Id[ServerGameMap],
     position: V2[Double],
     templateName: String
   )
@@ -56,7 +57,7 @@ object ServerGameMap {
           teleportsBuilder += ServerGameMap.Teleport(rect, targetPosition.map(_.toDouble), targetMapName)
         case TiledObject.MobSpawn(pixelPosition, templateName) =>
           val position = pixelPosition.xy.map(_.toDouble / tiledMap.tilewidth.toDouble)
-          mobSpawnBuilder += ServerGameMap.MobSpawn(position, templateName)
+          mobSpawnBuilder += ServerGameMap.MobSpawn(id, position, templateName)
 
         case _ => ()
       })
