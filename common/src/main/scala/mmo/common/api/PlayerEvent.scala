@@ -41,3 +41,5 @@ final case class OtherPlayerConnected(id: PlayerId, name: String) extends Player
 final case class OtherPlayerDisconnected(id: PlayerId) extends PlayerEvent
 
 final case class MobsAppeared(mobs: Seq[(MobId, EntityAppearance)]) extends PlayerEvent
+
+final case class MobDisappeared(id: MobId) extends PlayerEvent

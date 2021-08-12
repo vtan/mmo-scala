@@ -1,9 +1,10 @@
 package mmo.server.game
 
-import mmo.common.api.PlayerId
+import mmo.common.api.{MobId, PlayerId}
 
 final case class GameState(
-  players: Map[PlayerId, PlayerState]
+  players: Map[PlayerId, PlayerState],
+  mobs: Map[MobId, Mob]
 ) {
 
   def updatePlayer(id: PlayerId, state: PlayerState): GameState =
@@ -15,6 +16,7 @@ final case class GameState(
 
 object GameState {
   val empty: GameState = GameState(
-    players = Map.empty
+    players = Map.empty,
+    mobs = Map.empty
   )
 }

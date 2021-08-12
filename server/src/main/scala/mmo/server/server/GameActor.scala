@@ -26,7 +26,7 @@ class GameActor(
 
   private val logic = new GameLogic(maps, mapNames, mobTemplates)
 
-  def start: Behavior[Message] = running(state = GameState.empty)
+  def start: Behavior[Message] = running(state = logic.initialGameState)
 
   def running(state: GameState): Behavior[Message] =
     Behaviors.receiveMessage {

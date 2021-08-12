@@ -10,14 +10,12 @@ import akka.stream.{Materializer, OverflowStrategy}
 import akka.stream.typed.scaladsl.ActorSink
 import com.sksamuel.avro4s.{AvroInputStream, AvroOutputStream}
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
-import java.util.concurrent.atomic.AtomicLong
 import scala.concurrent.duration._
 
 object SessionFlow {
-  private val nextPlayerId: AtomicLong = new AtomicLong(0)
 
   def create(gameActor: ActorRef[GameActor.Message])(implicit mat: Materializer): Flow[ByteString, ByteString, NotUsed] = {
-    val id = PlayerId(nextPlayerId.getAndIncrement())
+    val id = PlayerId.nextId()
 
     val (queue, outgoingSource) = Source.queue[PlayerEvent](
       bufferSize = 32,

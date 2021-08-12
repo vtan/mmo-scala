@@ -10,7 +10,6 @@ import org.lwjgl.glfw.GLFW._
 import org.lwjgl.nanovg.NanoVG._
 import org.lwjgl.nanovg.NanoVGGL3._
 import org.lwjgl.opengl.GL11C._
-import scala.collection.immutable.ArraySeq
 import scala.collection.mutable
 
 object Game {
@@ -186,6 +185,9 @@ class Game(
 
       case MobsAppeared(mobs) =>
         mobAppearances ++= mobs
+
+      case MobDisappeared(id) =>
+        entityStates -= id
 
       case _: Pong | _: SessionEstablished =>
         throw new RuntimeException("This should not happen")
