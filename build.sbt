@@ -46,57 +46,26 @@ val commonSettings = Seq(
 
 lazy val common = (project in file("common")).settings(
   commonSettings,
-  libraryDependencies ++= Seq(
-    "com.sksamuel.avro4s" %% "avro4s-core" % "4.0.10"
+  libraryDependencies ++= Dependencies.common
+)
+
+lazy val server = (project in file("server")).dependsOn(common).settings(
+  commonSettings ++ Seq(
+    libraryDependencies ++= Dependencies.server,
+    mainClass := Some("mmo.server.Main"),
+    run / fork := true
   )
 )
 
-lazy val server = (project in file("server")).dependsOn(common).settings {
-  val akkaVersion = "2.6.15"
-  val circeVersion = "0.14.1"
-  commonSettings ++ Seq(
-    libraryDependencies ++= Vector(
-      "com.typesafe.akka" %% "akka-actor-typed" % akkaVersion,
-      "com.typesafe.akka" %% "akka-stream-typed" % akkaVersion,
-      "io.circe" %% "circe-core" % circeVersion,
-      "io.circe" %% "circe-generic" % circeVersion,
-      "io.circe" %% "circe-parser" % circeVersion,
-      "ch.qos.logback" % "logback-classic" % "1.2.3"
-    ),
-    mainClass := Some("mmo.server.Main"),
-    run / fork := true
-
-  )
-}
-
 lazy val client = (project in file("client")).dependsOn(common).settings {
-  val lwjglVersion = "3.2.3"
-
-  val arch = {
-    val os = sys.props("os.name").toLowerCase
-    if (os.contains("linux")) {
-      "linux"
-    } else if (os.contains("mac")) {
-      "macos"
-    } else if (os.contains("windows")) {
-      "windows"
-    } else {
-      throw new Exception(s"Cannot determine platform for OS: $os")
-    }
+  val arch = sys.props.getOrElse("cross.os.name", sys.props("os.name")).toLowerCase match {
+    case os if os.contains("linux") => "linux"
+    case os if os.contains("mac") => "macos"
+    case os if os.contains("windows") => "windows"
+    case os => throw new Exception(s"Cannot determine platform for OS: $os")
   }
-  val natives = "natives-" + arch
-
   commonSettings ++ Seq(
-    libraryDependencies ++= Vector(
-      "org.lwjgl" % "lwjgl" % lwjglVersion,
-      "org.lwjgl" % "lwjgl" % lwjglVersion classifier natives,
-      "org.lwjgl" % "lwjgl-glfw" % lwjglVersion,
-      "org.lwjgl" % "lwjgl-glfw" % lwjglVersion classifier natives,
-      "org.lwjgl" % "lwjgl-nanovg" % lwjglVersion,
-      "org.lwjgl" % "lwjgl-nanovg" % lwjglVersion classifier natives,
-      "org.lwjgl" % "lwjgl-opengl" % lwjglVersion,
-      "org.lwjgl" % "lwjgl-opengl" % lwjglVersion classifier natives
-    ),
+    libraryDependencies ++= Dependencies.client(arch),
     mainClass := Some("mmo.client.Main"),
 
     run / fork := true,
