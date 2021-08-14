@@ -188,6 +188,7 @@ class Game(
 
       case MobDisappeared(id) =>
         entityStates -= id
+        mobAppearances -= id
 
       case _: Pong | _: SessionEstablished =>
         throw new RuntimeException("This should not happen")

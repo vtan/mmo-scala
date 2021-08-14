@@ -122,8 +122,8 @@ class GameLogic(
       state.players.values
         .filter(_.mapId == mob.mapId)
         .foreach { player =>
-          player.queue.offer(EntityPositionsChanged(Seq(positionChange)))
           player.queue.offer(MobsAppeared(Seq(appearance)))
+          player.queue.offer(EntityPositionsChanged(Seq(positionChange)))
         }
     }
     state.copy(
