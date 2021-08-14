@@ -10,3 +10,11 @@ object KeyboardEvent {
   case object Release extends Action
   case object Repeat extends Action
 }
+
+final case class MouseButtonEvent(button: Int, action: MouseButtonEvent.Action) extends GlfwEvent
+
+object MouseButtonEvent {
+  sealed trait Action
+  case object Press extends Action
+  case object Release extends Action
+}

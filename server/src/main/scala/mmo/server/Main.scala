@@ -43,11 +43,11 @@ object Main {
     val mobTemplates = Seq(
       MobTemplate(
         name = "green-slime",
-        appearance = EntityAppearance(spriteOffset = 32)
+        appearance = EntityAppearance(spriteOffset = 64)
       ),
       MobTemplate(
         name = "blue-slime",
-        appearance = EntityAppearance(spriteOffset = 33)
+        appearance = EntityAppearance(spriteOffset = 65)
       )
     ).map(t => t.name -> t).toMap
 

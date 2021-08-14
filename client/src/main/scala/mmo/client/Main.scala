@@ -1,7 +1,7 @@
 package mmo.client
 
 import mmo.client.game.Game
-import mmo.client.graphics.{FpsCounter, GlfwEvent, GlfwUtil, KeyboardEvent}
+import mmo.client.graphics.{FpsCounter, GlfwEvent, GlfwUtil, KeyboardEvent, MouseButtonEvent}
 import mmo.client.network.{CommandSenderRunnable, EventReceiverRunnable}
 import mmo.common.api.{PlayerCommand, SessionEstablished}
 import mmo.common.linear.V2
@@ -10,7 +10,7 @@ import java.net.Socket
 import java.util.concurrent.atomic.AtomicReference
 import org.lwjgl.glfw.Callbacks._
 import org.lwjgl.glfw.GLFW._
-import org.lwjgl.glfw.GLFWKeyCallbackI
+import org.lwjgl.glfw.{GLFWCursorPosCallbackI, GLFWKeyCallbackI, GLFWMouseButtonCallbackI}
 import org.lwjgl.opengl._
 
 object Main {
@@ -40,7 +40,10 @@ object Main {
     GL.createCapabilities()
 
     val eventsRef = new AtomicReference(List.empty[GlfwEvent])
+    val mousePositionRef = new AtomicReference(V2.zero)
     glfwSetKeyCallback(window, keyCallback(eventsRef))
+    glfwSetMouseButtonCallback(window, mouseButtonCallback(eventsRef))
+    glfwSetCursorPosCallback(window, cursorPosCallback(mousePositionRef))
 
     val sessionEstablised = eventReceiver.take() match {
       case s: SessionEstablished => s
@@ -54,8 +57,7 @@ object Main {
 
     while (!glfwWindowShouldClose(window)) {
       val events = eventsRef.getAndSet(Nil).reverse
-      game.update(events, now, now - lastFrameTime)
-      game.render(now)
+      game.frame(events, mousePositionRef.get(), now, now - lastFrameTime)
 
       glfwSwapBuffers(window)
       glfwPollEvents()
@@ -77,7 +79,7 @@ object Main {
   }
 
   private def keyCallback(events: AtomicReference[List[GlfwEvent]]): GLFWKeyCallbackI =
-    (window: Long, key: Int, scancode: Int, action: Int, mods: Int) => {
+    (_: Long, key: Int, _: Int, action: Int, _: Int) => {
       val event = KeyboardEvent(
         key = key,
         action = action match {
@@ -90,4 +92,21 @@ object Main {
       val _ = events.updateAndGet(event :: _)
       ()
     }
+
+  private def mouseButtonCallback(events: AtomicReference[List[GlfwEvent]]): GLFWMouseButtonCallbackI =
+    (_: Long, button: Int, action: Int, _: Int) => {
+      val event = MouseButtonEvent(
+        button = button,
+        action = action match {
+          case GLFW_PRESS => MouseButtonEvent.Press
+          case GLFW_RELEASE => MouseButtonEvent.Release
+          case unknown => throw new RuntimeException(s"Unexpected GLFW mouse button action: $unknown")
+        }
+      )
+      val _ = events.updateAndGet(event :: _)
+      ()
+    }
+
+  private def cursorPosCallback(position: AtomicReference[V2[Double]]): GLFWCursorPosCallbackI =
+    (_: Long, xpos: Double, ypos: Double) => position.set(V2(xpos, ypos))
 }

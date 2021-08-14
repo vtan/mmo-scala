@@ -57,6 +57,9 @@ final case class Camera(
       }
     }
   }
+
+  def screenToPoint(screen: V2[Double]): V2[Double] =
+    screen / windowGeometry.pixelPerTile + viewport.xy
 }
 
 object Camera {

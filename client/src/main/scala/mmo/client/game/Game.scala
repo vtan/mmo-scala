@@ -1,6 +1,6 @@
 package mmo.client.game
 
-import mmo.client.graphics.{GlfwEvent, GlfwUtil, KeyboardEvent, TileAtlas}
+import mmo.client.graphics.{GlfwEvent, GlfwUtil, KeyboardEvent, MouseButtonEvent, TileAtlas}
 import mmo.client.network.{CommandSender, EventReceiver}
 import mmo.common.api._
 import mmo.common.linear.{Rect, V2}
@@ -56,9 +56,15 @@ class Game(
   private val mobAppearances = mutable.Map.empty[MobId, EntityAppearance]
   private var debugShowHitbox: Boolean = false
 
-  def update(events: List[GlfwEvent], now: Double, dt: Double): Unit = {
+  def frame(events: List[GlfwEvent], mousePosition: V2[Double], now: Double, dt: Double): Unit = {
+    val camera = Camera.centerOn(entityStates.get(playerId).fold(V2.zero)(_.position), gameMap.size, windowGeometry)
+    update(events, mousePosition, camera, now, dt)
+    render(camera, now)
+  }
+
+  private def update(events: List[GlfwEvent], mousePosition: V2[Double], camera: Camera, now: Double, dt: Double): Unit = {
     sendPing(now)
-    handleEvents(events)
+    handleEvents(events, mousePosition, camera, now)
 
     entityStates.mapValuesInPlace { (entityId, entity) =>
       if (entity.direction.isMoving) {
@@ -86,7 +92,7 @@ class Game(
       lastPingRtt = s"RTT: ${eventReceiver.lastPingNanos.get() / 1_000_000L} ms"
     }
 
-  private def handleEvents(events: List[GlfwEvent]): Unit = {
+  private def handleEvents(events: List[GlfwEvent], mousePosition: V2[Double], camera: Camera, now: Double): Unit = {
     val oldMovementKeyBits = movementKeyBits
 
     events.foreach {
@@ -98,6 +104,26 @@ class Game(
 
       case KeyboardEvent(GLFW_KEY_F2, KeyboardEvent.Press) =>
         debugShowHitbox = !debugShowHitbox
+
+      case MouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, MouseButtonEvent.Press) =>
+        entityStates.updateWith(playerId)(_.map { player =>
+          if (player.attackAnimationStarted + Constants.playerAttackLength < now) {
+            val clickDirection = camera.screenToPoint(mousePosition) - (player.position + Constants.playerHitbox.xy)
+            val quadrant = (V2.angle(clickDirection) + Math.PI / 4) / Math.PI * 2
+            val lookDirection = quadrant.floor match {
+              case -1 => LookDirection.up
+              case 0 => LookDirection.right
+              case 1 => LookDirection.down
+              case _ => LookDirection.left
+            }
+            player.copy(
+              attackAnimationStarted = now,
+              lookDirection = lookDirection
+            )
+          } else {
+            player
+          }
+        })
 
       case _ => ()
     }
@@ -194,14 +220,12 @@ class Game(
         throw new RuntimeException("This should not happen")
     }
 
-  def render(now: Double): Unit = {
+  private def render(camera: Camera, now: Double): Unit = {
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)
 
     nvgBeginFrame(nvg, windowSize.x.toFloat, windowSize.y.toFloat, pixelRatio.toFloat)
     nvgFontSize(nvg, 20)
-
-    val camera = Camera.centerOn(entityStates.get(playerId).fold(V2.zero)(_.position), gameMap.size, windowGeometry)
 
     renderMapTiles(camera, front = false)
     renderEntities(camera, now)
@@ -276,7 +300,7 @@ class Game(
   private def renderPlayerHitboxes(camera: Camera): Unit = {
     nvgStrokeColor(nvg, GlfwUtil.color(1, 1, 1, 0.6))
     entityStates.foreach {
-      case (_, player) =>
+      case (_: PlayerId, player) =>
         val hitbox = Constants.playerHitbox.translate(player.lastPositionFromServer)
         camera.transformVisibleRect(hitbox).foreach {
           case Rect(V2(x, y), V2(w, h)) =>
@@ -284,6 +308,7 @@ class Game(
             nvgRect(nvg, x.toFloat, y.toFloat, w.toFloat, h.toFloat)
             nvgStroke(nvg)
         }
+      case _ => ()
     }
   }
 
