@@ -7,6 +7,12 @@ final case class ServerTime(asNanos: Long) extends AnyVal {
 
   def isBefore(rhs: ServerTime): Boolean =
     asNanos < rhs.asNanos
+
+  def -(rhs: ServerTime): ServerTime =
+    ServerTime(asNanos - rhs.asNanos)
+
+  def toSeconds: Double =
+    asNanos.toDouble / 1.0e9
 }
 
 object ServerTime {

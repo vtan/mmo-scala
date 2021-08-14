@@ -13,5 +13,6 @@ final case class PlayerState(
   direction: Direction,
   lookDirection: LookDirection,
   queue: SourceQueueWithComplete[PlayerEvent],
-  receivedAtNano: Long
+  receivedAtNano: ServerTime,
+  attackStartedAt: ServerTime
 )

@@ -116,6 +116,10 @@ class Game(
               case 1 => LookDirection.down
               case _ => LookDirection.left
             }
+            commandSender.offer(PlayerCommand.Attack(
+              lookDirection = lookDirection,
+              target = None // TODO for now
+            ))
             player.copy(
               attackAnimationStarted = now,
               lookDirection = lookDirection
@@ -186,6 +190,12 @@ class Game(
               Some(EntityState.newAt(update, now))
           }
         }
+
+      case EntityAttacked(id, lookDirection) =>
+        val _ = entityStates.updateWith(id)(_.map(_.copy(
+          lookDirection = lookDirection,
+          attackAnimationStarted = now
+        )))
 
       case MovementAcked(position) =>
         val _ = entityStates.updateWith(playerId)(_.map(_.copy(

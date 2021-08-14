@@ -32,7 +32,7 @@ class GameLogic(
   def playerConnected(playerId: PlayerId, queue: SourceQueueWithComplete[PlayerEvent])(state: GameState): GameState = {
     val name = UUID.randomUUID().toString.take(6).toUpperCase
     val (mapId, map) = maps.minBy(_._1.asLong)
-    val player = PlayerState(playerId, name, mapId, V2(2, 1), Direction.none, LookDirection.down, queue, System.nanoTime())
+    val player = PlayerState(playerId, name, mapId, V2(2, 1), Direction.none, LookDirection.down, queue, ServerTime.now, ServerTime.now)
 
     val newState = state.updatePlayer(player.id, player)
     val playerNames = newState.players.map { case (id, player) => id -> player.name }.toSeq
@@ -52,7 +52,7 @@ class GameLogic(
       case requested: PlayerCommand.Move =>
         val existing = state.players.getOrElse(playerId, throw new IllegalStateException(s"Player state missing for $playerId"))
         val predictedPosition = {
-          val timeElapsed = (System.nanoTime() - existing.receivedAtNano).toDouble * 1e-9
+          val timeElapsed = (state.serverTime - existing.receivedAtNano).toSeconds
           existing.position + timeElapsed *: existing.direction.vector
         }
         val map = maps(existing.mapId)
@@ -73,7 +73,7 @@ class GameLogic(
               mapId = targetMap.id,
               position = teleport.targetPosition,
               direction = Direction.none,
-              receivedAtNano = System.nanoTime()
+              receivedAtNano = state.serverTime
             )
             val newState = state.updatePlayer(newPlayer.id, newPlayer)
             newPlayer.queue.offer(Teleported(targetMap.compactGameMap))
@@ -86,19 +86,35 @@ class GameLogic(
                 position = if (movedFarFromPredicted) predictedPosition else existing.position,
                 direction = if (movedToObstacle) Direction.none else requested.direction,
                 lookDirection = requested.lookDirection,
-                receivedAtNano = System.nanoTime()
+                receivedAtNano = state.serverTime
               )
             } else {
               existing.copy(
                 position = requested.position,
                 direction = requested.direction,
                 lookDirection = requested.lookDirection,
-                receivedAtNano = System.nanoTime()
+                receivedAtNano = state.serverTime
               )
             }
             val newState = killMobWithPlayer(newPlayer)(state.updatePlayer(newPlayer.id, newPlayer))
             broadcastPlayerPosition(newPlayer, newState.players.values, ack = !invalid)
             newState
+        }
+
+      case PlayerCommand.Attack(lookDirection, _) =>
+        val player = state.players(playerId)
+        if ((state.serverTime - player.attackStartedAt).toSeconds > Constants.playerAttackLength) {
+          broadcastToMapExcept(
+            EntityAttacked(playerId, lookDirection),
+            player
+          )(state)
+          state.updatePlayer(playerId, player.copy(
+            attackStartedAt = state.serverTime,
+            lookDirection = lookDirection
+          ))
+        } else {
+          // TODO: log invalid commands?
+          state
         }
 
       case _: PlayerCommand.InitiateSession => disconnectPlayer(playerId)(state)
@@ -174,6 +190,9 @@ class GameLogic(
 
   private def broadcastEvent(event: PlayerEvent, players: Iterable[PlayerState]): Unit =
     players.foreach(_.queue.offer(event))
+
+  private def broadcastToMapExcept(event: PlayerEvent, except: PlayerState)(state: GameState): Unit =
+    broadcastEvent(event, state.players.values.filter(p => p.id != except.id && p.mapId == except.mapId))
 
   private def playerStateToEvent(player: PlayerState): EntityPositionsChanged.Entry =
     EntityPositionsChanged.Entry(player.id, player.position, player.direction, player.lookDirection)

@@ -23,4 +23,9 @@ object PlayerCommand {
     direction: Direction,
     lookDirection: LookDirection
   ) extends PlayerCommand
+
+  final case class Attack(
+    lookDirection: LookDirection,
+    target: Option[MobId]
+  ) extends PlayerCommand
 }

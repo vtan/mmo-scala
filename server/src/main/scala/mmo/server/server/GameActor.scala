@@ -54,7 +54,7 @@ class GameActor(
 
       case PlayerCommandReceived(playerId, command) =>
         try {
-          val newState = logic.playerCommandReceived(playerId, command)(state)
+          val newState = logic.playerCommandReceived(playerId, command)(state.updateServerTime())
           running(newState)
         } catch {
           case ex: Throwable =>
