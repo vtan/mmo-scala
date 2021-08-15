@@ -1,6 +1,7 @@
 package mmo.server
 
 import mmo.common.api.{CompactGameMap, EntityAppearance, Id}
+import mmo.common.linear.Rect
 import mmo.server.game.{MobTemplate, ServerGameMap}
 import mmo.server.server.{GameActor, SessionFlow}
 import mmo.server.tiled.{TiledMap, Tileset}
@@ -43,11 +44,19 @@ object Main {
     val mobTemplates = Seq(
       MobTemplate(
         name = "green-slime",
-        appearance = EntityAppearance(spriteOffset = 64)
+        appearance = EntityAppearance(
+          spriteOffset = 64,
+          spriteBoundary = Rect(0, 3.0 / 16, 1, 1 - 3.0 / 16),
+          collisionBox = Rect(0, 0.75, 1, 0.25)
+        )
       ),
       MobTemplate(
         name = "blue-slime",
-        appearance = EntityAppearance(spriteOffset = 65)
+        appearance = EntityAppearance(
+          spriteOffset = 65,
+          spriteBoundary = Rect(0, 3.0 / 16, 1, 1 - 3.0 / 16),
+          collisionBox = Rect(0, 0.75, 1, 0.25)
+        )
       )
     ).map(t => t.name -> t).toMap
 

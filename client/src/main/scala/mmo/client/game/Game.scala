@@ -52,19 +52,23 @@ class Game(
 
   private var lastPingSent: Double = 0.0f
   private var lastPingRtt: String = ""
+
   private val entityStates = mutable.Map.empty[EntityId, EntityState]
   private val mobAppearances = mutable.Map.empty[MobId, EntityAppearance]
+  private var camera = Camera.centerOn(entityStates.get(playerId).fold(V2.zero)(_.position), gameMap.size, windowGeometry)
+
   private var debugShowHitbox: Boolean = false
 
   def frame(events: List[GlfwEvent], mousePosition: V2[Double], now: Double, dt: Double): Unit = {
-    val camera = Camera.centerOn(entityStates.get(playerId).fold(V2.zero)(_.position), gameMap.size, windowGeometry)
-    update(events, mousePosition, camera, now, dt)
-    render(camera, now)
+    update(events, mousePosition, now, dt)
+    render(now)
   }
 
-  private def update(events: List[GlfwEvent], mousePosition: V2[Double], camera: Camera, now: Double, dt: Double): Unit = {
+  private def update(events: List[GlfwEvent], mousePosition: V2[Double], now: Double, dt: Double): Unit = {
     sendPing(now)
-    handleEvents(events, mousePosition, camera, now)
+    handleEvents(events, mousePosition, now)
+
+    val positionBeforeUpdate = (gameMap.size, entityStates.get(playerId).map(_.position))
 
     entityStates.mapValuesInPlace { (entityId, entity) =>
       if (entity.direction.isMoving) {
@@ -83,6 +87,11 @@ class Game(
       handleServerEvent(nextPlayerEvent, now = now)
       nextPlayerEvent = eventReceiver.poll()
     }
+
+    val positionAfterUpdate = (gameMap.size, entityStates.get(playerId).map(_.position))
+    if (positionBeforeUpdate != positionAfterUpdate) {
+      camera = Camera.centerOn(entityStates.get(playerId).fold(V2.zero)(_.position), gameMap.size, windowGeometry)
+    }
   }
 
   private def sendPing(now: Double): Unit =
@@ -92,7 +101,7 @@ class Game(
       lastPingRtt = s"RTT: ${eventReceiver.lastPingNanos.get() / 1_000_000L} ms"
     }
 
-  private def handleEvents(events: List[GlfwEvent], mousePosition: V2[Double], camera: Camera, now: Double): Unit = {
+  private def handleEvents(events: List[GlfwEvent], mousePosition: V2[Double], now: Double): Unit = {
     val oldMovementKeyBits = movementKeyBits
 
     events.foreach {
@@ -108,12 +117,11 @@ class Game(
       case MouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, MouseButtonEvent.Press) =>
         entityStates.updateWith(playerId)(_.map { player =>
           if (player.attackAnimationStarted + Constants.playerAttackLength < now) {
-            val clickDirection = camera.screenToPoint(mousePosition) - (player.position + Constants.playerHitbox.xy)
+            val target = camera.screenToPoint(mousePosition)
+            val clickDirection = target - (player.position + Constants.playerHitbox.xy)
             val lookDirection = LookDirection.fromVector(clickDirection)
-            commandSender.offer(PlayerCommand.Attack(
-              lookDirection = lookDirection,
-              target = None // TODO for now
-            ))
+            commandSender.offer(PlayerCommand.Move(player.position, player.direction, player.lookDirection))
+            commandSender.offer(PlayerCommand.Attack(target))
             player.copy(
               attackAnimationStarted = now,
               lookDirection = lookDirection
@@ -185,9 +193,8 @@ class Game(
           }
         }
 
-      case EntityAttacked(id, lookDirection) =>
+      case EntityAttacked(id) =>
         val _ = entityStates.updateWith(id)(_.map(_.copy(
-          lookDirection = lookDirection,
           attackAnimationStarted = now
         )))
 
@@ -224,20 +231,20 @@ class Game(
         throw new RuntimeException("This should not happen")
     }
 
-  private def render(camera: Camera, now: Double): Unit = {
+  private def render(now: Double): Unit = {
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)
 
     nvgBeginFrame(nvg, windowSize.x.toFloat, windowSize.y.toFloat, pixelRatio.toFloat)
     nvgFontSize(nvg, 20)
 
-    renderMapTiles(camera, front = false)
-    renderEntities(camera, now)
-    renderMapTiles(camera, front = true)
+    renderMapTiles(front = false)
+    renderEntities(now)
+    renderMapTiles(front = true)
 
     if (debugShowHitbox) {
-      renderPlayerHitboxes(camera)
-      renderMapHitboxes(camera)
+      renderEntityHitboxes()
+      renderMapHitboxes()
     }
 
     nvgTextAlign(nvg, NVG_ALIGN_TOP | NVG_ALIGN_CENTER)
@@ -259,7 +266,7 @@ class Game(
     nvgEndFrame(nvg)
   }
 
-  private def renderMapTiles(camera: Camera, front: Boolean): Unit =
+  private def renderMapTiles(front: Boolean): Unit =
     camera.visibleTiles.foreach {
       case V2(x, y) =>
         val offset = gameMap.offsetOf(x, y).get
@@ -277,7 +284,7 @@ class Game(
         }
     }
 
-  private def renderEntities(camera: Camera, now: Double): Unit = {
+  private def renderEntities(now: Double): Unit = {
     val entities = entityStates.toArray
     entities.sortInPlaceBy(_._2.position.y)
     entities.foreach {
@@ -301,22 +308,33 @@ class Game(
     }
   }
 
-  private def renderPlayerHitboxes(camera: Camera): Unit = {
+  private def renderEntityHitboxes(): Unit = {
     nvgStrokeColor(nvg, GlfwUtil.color(1, 1, 1, 0.6))
     entityStates.foreach {
-      case (_: PlayerId, player) =>
-        val hitbox = Constants.playerHitbox.translate(player.lastPositionFromServer)
-        camera.transformVisibleRect(hitbox).foreach {
-          case Rect(V2(x, y), V2(w, h)) =>
-            nvgBeginPath(nvg)
-            nvgRect(nvg, x.toFloat, y.toFloat, w.toFloat, h.toFloat)
-            nvgStroke(nvg)
+      case (id, entity) =>
+        val boxes = id match {
+          case _: PlayerId =>
+            List(Constants.playerHitbox.translate(entity.lastPositionFromServer))
+          case mobId: MobId =>
+            val appearance = mobAppearances(mobId)
+            List(
+              appearance.spriteBoundary.translate(entity.lastPositionFromServer),
+              appearance.collisionBox.translate(entity.lastPositionFromServer)
+            )
+        }
+        boxes.foreach { box =>
+          camera.transformVisibleRect(box).foreach {
+            case Rect(V2(x, y), V2(w, h)) =>
+              nvgBeginPath(nvg)
+              nvgRect(nvg, x.toFloat, y.toFloat, w.toFloat, h.toFloat)
+              nvgStroke(nvg)
+          }
         }
       case _ => ()
     }
   }
 
-  private def renderMapHitboxes(camera: Camera): Unit = {
+  private def renderMapHitboxes(): Unit = {
     nvgStrokeColor(nvg, GlfwUtil.color(1, 0, 0, 0.6))
     camera.visibleTiles.foreach {
       case V2(x, y) =>

@@ -34,10 +34,7 @@ object EntityPositionsChanged {
   )
 }
 
-final case class EntityAttacked(
-  id: PlayerId,
-  lookDirection: LookDirection
-) extends PlayerEvent
+final case class EntityAttacked(id: PlayerId) extends PlayerEvent
 
 final case class OtherPlayerDisappeared(id: PlayerId) extends PlayerEvent
 
