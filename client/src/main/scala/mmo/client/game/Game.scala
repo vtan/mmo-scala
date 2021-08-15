@@ -109,13 +109,7 @@ class Game(
         entityStates.updateWith(playerId)(_.map { player =>
           if (player.attackAnimationStarted + Constants.playerAttackLength < now) {
             val clickDirection = camera.screenToPoint(mousePosition) - (player.position + Constants.playerHitbox.xy)
-            val quadrant = (V2.angle(clickDirection) + Math.PI / 4) / Math.PI * 2
-            val lookDirection = quadrant.floor match {
-              case -1 => LookDirection.up
-              case 0 => LookDirection.right
-              case 1 => LookDirection.down
-              case _ => LookDirection.left
-            }
+            val lookDirection = LookDirection.fromVector(clickDirection)
             commandSender.offer(PlayerCommand.Attack(
               lookDirection = lookDirection,
               target = None // TODO for now
