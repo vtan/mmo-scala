@@ -17,7 +17,7 @@ final case class EntityState(
 
   def applyPositionChange(update: EntityPositionsChanged.Entry, now: Double, calculateInterpolation: Boolean): EntityState =
     copy(
-      position = update.position,
+      position = if (calculateInterpolation) update.position else this.position,
       lastPositionFromServer = update.position,
       direction = update.direction,
       lookDirection = update.lookDirection,
@@ -58,10 +58,13 @@ final case class EntityState(
     } else {
       lookDirection.spriteIndex
     }
+
+  def isInterpolatingAt(t: Double): Boolean =
+    t - lastServerEventAt <= EntityState.interpolationPeriod
 }
 
 object EntityState {
-  val interpolationPeriod = 0.5
+  val interpolationPeriod = 0.1
 
   def newAt(update: EntityPositionsChanged.Entry, now: Double): EntityState =
     EntityState(

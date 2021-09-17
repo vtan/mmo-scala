@@ -167,8 +167,7 @@ class Game(
 
   private def updateOtherMovement(entity: EntityState, now: Double): EntityState = {
     // TODO: do not update entities outside the camera
-    val interpolating = now - entity.lastServerEventAt <= EntityState.interpolationPeriod
-    if (interpolating) {
+    if (entity.isInterpolatingAt(now)) {
       // Interpolating to predicted position in the near future to avoid jumping on a new update from server
       val t = (now - entity.lastServerEventAt) / EntityState.interpolationPeriod
       val position = V2.lerp(t, entity.interpolationSource, entity.interpolationTarget)
@@ -243,7 +242,7 @@ class Game(
     renderMapTiles(front = true)
 
     if (debugShowHitbox) {
-      renderEntityHitboxes()
+      renderEntityHitboxes(now)
       renderMapHitboxes()
     }
 
@@ -308,8 +307,9 @@ class Game(
     }
   }
 
-  private def renderEntityHitboxes(): Unit = {
-    nvgStrokeColor(nvg, GlfwUtil.color(1, 1, 1, 0.6))
+  private def renderEntityHitboxes(now: Double): Unit = {
+    val regularColor = GlfwUtil.color(1, 1, 1, 0.6)
+    val interpolationColor = GlfwUtil.color(1, 0, 1, 0.9)
     entityStates.foreach {
       case (id, entity) =>
         val boxes = id match {
@@ -325,6 +325,12 @@ class Game(
         boxes.foreach { box =>
           camera.transformVisibleRect(box).foreach {
             case Rect(V2(x, y), V2(w, h)) =>
+              val color = if (id != playerId && entity.isInterpolatingAt(now)) {
+                interpolationColor
+              } else {
+                regularColor
+              }
+              nvgStrokeColor(nvg, color)
               nvgBeginPath(nvg)
               nvgRect(nvg, x.toFloat, y.toFloat, w.toFloat, h.toFloat)
               nvgStroke(nvg)
