@@ -49,8 +49,9 @@ class Game(
   nvgFontFaceId(nvg, font)
 
   private var movementKeyBits: Int = 0
+  private var selfLastSentPosition: V2[Double] = V2.zero
 
-  private var lastPingSent: Double = 0.0f
+  private var lastPingSent: Double = 0.0
   private var lastPingRtt: String = ""
 
   private val entityStates = mutable.Map.empty[EntityId, EntityState]
@@ -95,7 +96,7 @@ class Game(
   }
 
   private def sendPing(now: Double): Unit =
-    if (now - lastPingSent >= 1.0f) {
+    if (now - lastPingSent >= 1.0) {
       commandSender.offer(PlayerCommand.Ping(System.nanoTime()))
       lastPingSent = now
       lastPingRtt = s"RTT: ${eventReceiver.lastPingNanos.get() / 1_000_000L} ms"
@@ -120,7 +121,7 @@ class Game(
             val target = camera.screenToPoint(mousePosition)
             val clickDirection = target - (player.position + Constants.playerHitbox.xy)
             val lookDirection = LookDirection.fromVector(clickDirection)
-            commandSender.offer(PlayerCommand.Move(player.position, player.direction, player.lookDirection))
+            sendSelfMovement(player)
             commandSender.offer(PlayerCommand.Attack(target))
             player.copy(
               attackAnimationStarted = now,
@@ -142,8 +143,7 @@ class Game(
         } else {
           state.lookDirection
         }
-        commandSender.offer(PlayerCommand.Move(state.position, newDirection, lookDirection))
-        state.copy(direction = newDirection, lookDirection = lookDirection)
+        sendSelfMovement(state.copy(direction = newDirection, lookDirection = lookDirection))
       })
     }
   }
@@ -154,15 +154,21 @@ class Game(
     val newPosition = self.position + positionChange
     val hitbox = Constants.playerHitbox.translate(newPosition)
     if (gameMap.doesRectCollide(hitbox)) {
-      commandSender.offer(PlayerCommand.Move(self.position, Direction.none, self.lookDirection))
-      self.copy(direction = Direction.none)
+      sendSelfMovement(self.copy(direction = Direction.none))
     } else {
-      val hasCrossedTile = newPosition.map(_.floor.toInt) - self.position.map(_.floor.toInt) != V2.intZero
-      if (hasCrossedTile) {
-        commandSender.offer(PlayerCommand.Move(newPosition, self.direction, self.lookDirection))
+      val updated = self.copy(position = newPosition)
+      if ((newPosition - selfLastSentPosition).lengthSq >= 1.0) {
+        sendSelfMovement(updated)
+      } else {
+        updated
       }
-      self.copy(position = newPosition)
     }
+  }
+
+  private def sendSelfMovement(self: EntityState): EntityState = {
+    commandSender.offer(PlayerCommand.Move(self.position, self.direction, self.lookDirection))
+    this.selfLastSentPosition = self.position
+    self
   }
 
   private def updateOtherMovement(entity: EntityState, now: Double): EntityState = {
