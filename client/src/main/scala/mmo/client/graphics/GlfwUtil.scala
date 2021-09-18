@@ -22,7 +22,7 @@ object GlfwUtil {
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE)
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE)
 
-    val window = glfwCreateWindow(requestedWindowSize.x, requestedWindowSize.y, "Hello World!", NULL, NULL)
+    val window = glfwCreateWindow(requestedWindowSize.x, requestedWindowSize.y, "mmo", NULL, NULL)
     if (window == NULL) {
       throw new RuntimeException("Failed to create the GLFW window")
     }

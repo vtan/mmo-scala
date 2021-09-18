@@ -11,15 +11,12 @@ trait CommandSender {
   def offer(command: PlayerCommand): Unit
 }
 
-class CommandSenderRunnable(
+private[network] class CommandSenderRunnable(
   outputStream: OutputStream
 ) extends Runnable with CommandSender {
 
   private val commandQueue: BlockingQueue[PlayerCommand] = new ArrayBlockingQueue[PlayerCommand](256)
-
-  private val byteArrayOutputStream = new ByteArrayOutputStream()
-  private val sizeBuffer = ByteBuffer.allocate(4)
-  private val avroOutputStream = AvroOutputStream.binary[PlayerCommand].to(byteArrayOutputStream).build()
+  private val commandWriter: CommandWriter = new CommandWriter
 
   override def offer(command: PlayerCommand): Unit = {
     val _ = commandQueue.offer(command)
@@ -30,13 +27,20 @@ class CommandSenderRunnable(
     try {
       while (true) {
         val command = commandQueue.take()
-        writeCommand(command)
+        commandWriter.write(command, outputStream)
       }
     } catch {
-      case _: Throwable => () // TODO handle disconnect if not quitting
+      case _: Throwable => ()
     }
+}
 
-  private def writeCommand(command: PlayerCommand): Unit = {
+private class CommandWriter {
+
+  private val byteArrayOutputStream = new ByteArrayOutputStream()
+  private val sizeBuffer = ByteBuffer.allocate(4)
+  private val avroOutputStream = AvroOutputStream.binary[PlayerCommand].to(byteArrayOutputStream).build()
+
+  def write(command: PlayerCommand, outputStream: OutputStream): Unit = {
     byteArrayOutputStream.reset()
     val _ = sizeBuffer.clear()
     avroOutputStream.write(command)

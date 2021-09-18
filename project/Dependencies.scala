@@ -7,7 +7,8 @@ object Dependencies {
   private val lwjglVersion = "3.2.3"
 
   val common = Seq(
-    "com.sksamuel.avro4s" %% "avro4s-core" % "4.0.10"
+    "com.sksamuel.avro4s" %% "avro4s-core" % "4.0.10",
+    "ch.qos.logback" % "logback-classic" % "1.2.6"
   )
 
   val server = common ++ Seq(
@@ -15,8 +16,7 @@ object Dependencies {
     "com.typesafe.akka" %% "akka-stream-typed" % akkaVersion,
     "io.circe" %% "circe-core" % circeVersion,
     "io.circe" %% "circe-generic" % circeVersion,
-    "io.circe" %% "circe-parser" % circeVersion,
-    "ch.qos.logback" % "logback-classic" % "1.2.3"
+    "io.circe" %% "circe-parser" % circeVersion
   )
 
   def client(arch: String) = {

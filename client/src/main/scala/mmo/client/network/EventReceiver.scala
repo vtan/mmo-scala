@@ -10,41 +10,40 @@ import java.util.concurrent.atomic.AtomicLong
 
 trait EventReceiver {
   def poll(): PlayerEvent
-  def take(): PlayerEvent
   val lastPingNanos: AtomicLong
 }
 
-class EventReceiverRunnable(
+private[network] class EventReceiverRunnable(
   inputStream: InputStream
 ) extends Runnable with EventReceiver {
 
   private val eventQueue: BlockingQueue[PlayerEvent] = new ArrayBlockingQueue[PlayerEvent](256)
-
-  private val payloadBuffer: Array[Byte] = Array.fill(Constants.maxMessageBytes)(0.toByte)
-  private val payloadInputStream = new ByteArrayInputStream(payloadBuffer)
-  private val avroInputStream = AvroInputStream.binary[PlayerEvent].from(payloadInputStream).build(PlayerEvent.avroSchema)
+  private val eventReader: EventReader = new EventReader
 
   override val lastPingNanos: AtomicLong = new AtomicLong(0L)
 
-  override def poll(): PlayerEvent =
-    eventQueue.poll()
-
-  override def take(): PlayerEvent =
-    eventQueue.take()
+  override def poll(): PlayerEvent = eventQueue.poll()
 
   override def run(): Unit =
     try {
       while (true) {
-        deserializeEvent(inputStream) match {
+        eventReader.read(inputStream) match {
           case Pong(clientTimeNanos) => lastPingNanos.set(System.nanoTime() - clientTimeNanos)
           case event => eventQueue.add(event)
         }
       }
     } catch {
-      case _: Throwable => () // TODO handle disconnect if not quitting
+      case _: Throwable => ()
     }
+}
 
-  private def deserializeEvent(inputStream: InputStream): PlayerEvent = {
+private class EventReader {
+
+  private val payloadBuffer: Array[Byte] = Array.fill(Constants.maxMessageBytes)(0.toByte)
+  private val payloadInputStream = new ByteArrayInputStream(payloadBuffer)
+  private val avroInputStream = AvroInputStream.binary[PlayerEvent].from(payloadInputStream).build(PlayerEvent.avroSchema)
+
+  def read(inputStream: InputStream): PlayerEvent = {
     val size = ByteBuffer.wrap(inputStream.readNBytes(4)).getInt
     if (size > payloadBuffer.length) {
       throw new RuntimeException(s"Received too large command: $size bytes")

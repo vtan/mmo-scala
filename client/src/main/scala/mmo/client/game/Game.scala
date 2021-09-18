@@ -1,27 +1,24 @@
 package mmo.client.game
 
-import mmo.client.graphics.{GlfwEvent, GlfwUtil, KeyboardEvent, MouseButtonEvent, TileAtlas}
-import mmo.client.network.{CommandSender, EventReceiver}
+import mmo.client.graphics.{GlfwEvent, GlfwUtil, KeyboardEvent, MouseButtonEvent}
+import mmo.client.network.Connection
 import mmo.common.api._
 import mmo.common.linear.{Rect, V2}
 import mmo.common.map.GameMap
 
 import org.lwjgl.glfw.GLFW._
 import org.lwjgl.nanovg.NanoVG._
-import org.lwjgl.nanovg.NanoVGGL3._
 import org.lwjgl.opengl.GL11C._
 import scala.collection.mutable
 
 object Game {
   def apply(
-    window: Long,
-    eventReceiver: EventReceiver,
-    commandSender: CommandSender,
+    resources: Resources,
+    connection: Connection,
     sessionEstablished: SessionEstablished
   ): Game = new Game(
-    window = window,
-    eventReceiver = eventReceiver,
-    commandSender = commandSender,
+    resources = resources,
+    connection = connection,
     playerId = sessionEstablished.playerId,
     gameMap = sessionEstablished.compactGameMap.toGameMap,
     playerNames = mutable.Map.from(sessionEstablished.players)
@@ -29,24 +26,15 @@ object Game {
 }
 
 class Game(
-  window: Long,
-  eventReceiver: EventReceiver,
-  commandSender: CommandSender,
+  resources: Resources,
+  connection: Connection,
   playerId: PlayerId,
   var gameMap: GameMap,
   playerNames: mutable.Map[PlayerId, String]
-) {
-  private val nvg: Long = nvgCreate(0)
-  private val (windowSize: V2[Double], pixelRatio: Double) = GlfwUtil.getWindowGeometry(window)
-  private val windowGeometry = WindowGeometry(
-    windowSize = windowSize,
-    scaleFactor = 3
-  )
+) extends AppStage {
 
-  private val charAtlas: TileAtlas = TileAtlas.loadFromFile(nvg, "assets/charset.png")
-  private val tileAtlas: TileAtlas = TileAtlas.loadFromFile(nvg, "assets/tileset.png")
-  private val font: Int = nvgCreateFont(nvg, "Roboto", "assets/roboto/Roboto-Regular.ttf")
-  nvgFontFaceId(nvg, font)
+  import connection.{commandSender, eventReceiver}
+  import resources.{charAtlas, nvg, tileAtlas, windowGeometry}
 
   private var movementKeyBits: Int = 0
   private var selfLastSentPosition: V2[Double] = V2.zero
@@ -60,10 +48,14 @@ class Game(
 
   private var debugShowHitbox: Boolean = false
 
-  def frame(events: List[GlfwEvent], mousePosition: V2[Double], now: Double, dt: Double): Unit = {
-    update(events, mousePosition, now, dt)
-    render(now)
-  }
+  override def frame(events: List[GlfwEvent], mousePosition: V2[Double], now: Double, dt: Double): Option[() => AppStage] =
+    if (connection.isConnected) {
+      update(events, mousePosition, now, dt)
+      render(now)
+      None
+    } else {
+      Some(() => new ConnectingStage(resources, reconnect = true))
+    }
 
   private def update(events: List[GlfwEvent], mousePosition: V2[Double], now: Double, dt: Double): Unit = {
     sendPing(now)
@@ -240,7 +232,7 @@ class Game(
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)
 
-    nvgBeginFrame(nvg, windowSize.x.toFloat, windowSize.y.toFloat, pixelRatio.toFloat)
+    resources.nvgBeginFrame()
     nvgFontSize(nvg, 20)
 
     renderMapTiles(front = false)
