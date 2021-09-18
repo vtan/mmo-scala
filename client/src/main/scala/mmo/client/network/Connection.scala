@@ -6,8 +6,7 @@ import scala.concurrent.{Future, Promise}
 
 class Connection(
   val eventReceiver: EventReceiver,
-  val commandSender: CommandSender,
-  val close: () => Unit
+  val commandSender: CommandSender
 ) {
   private val connected: AtomicBoolean = new AtomicBoolean(true)
 
@@ -27,18 +26,15 @@ object Connection {
           val outputStream = socket.getOutputStream
 
           val eventReceiver = new EventReceiverRunnable(inputStream)
-          val commandSender = new CommandSenderRunnable(outputStream)
           val eventReceiverThread = new Thread(eventReceiver, "connection-event-receiver")
-          val commandSenderThread = new Thread(commandSender, "connection-command-sender")
+          eventReceiverThread.setDaemon(true)
           eventReceiverThread.start()
+          val commandSender = new CommandSenderRunnable(outputStream)
+          val commandSenderThread = new Thread(commandSender, "connection-command-sender")
+          commandSenderThread.setDaemon(true)
           commandSenderThread.start()
 
-          val connection = new Connection(eventReceiver, commandSender, close = () => {
-            eventReceiverThread.interrupt()
-            commandSenderThread.interrupt()
-            inputStream.close()
-            outputStream.close()
-          })
+          val connection = new Connection(eventReceiver, commandSender)
           promise.success(connection)
 
           eventReceiverThread.join()
@@ -51,6 +47,7 @@ object Connection {
       },
       "connection"
     )
+    thread.setDaemon(true)
     thread.start()
     promise.future
   }

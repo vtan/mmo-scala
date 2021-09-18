@@ -47,8 +47,6 @@ object Main {
     glfwDestroyWindow(window)
     glfwTerminate()
     glfwSetErrorCallback(null).free()
-
-    sys.exit(0)
   }
 
   private def keyCallback(events: AtomicReference[List[GlfwEvent]]): GLFWKeyCallbackI =
