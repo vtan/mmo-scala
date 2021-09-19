@@ -63,7 +63,7 @@ class GameActor(
         }
 
       case Disconnected(playerId) =>
-        running(state.removePlayer(playerId))
+        running(logic.disconnectPlayer(playerId)(state))
 
       case Tick =>
         running(logic.timerTicked(state.updateServerTime()))
