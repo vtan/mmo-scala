@@ -63,6 +63,12 @@ class Game(
 
     val positionBeforeUpdate = (gameMap.size, entityStates.get(playerId).map(_.position))
 
+    entityStates.filterInPlace {
+      case (id: MobId, entity) if entity.dyingAnimationStarted.exists(_ + EntityState.dyingAnimationLength <= now) =>
+        mobAppearances -= id
+        false
+      case _ => true
+    }
     entityStates.mapValuesInPlace { (entityId, entity) =>
       if (entity.direction.isMoving) {
         if (entityId == playerId) {
@@ -220,9 +226,9 @@ class Game(
       case MobsAppeared(mobs) =>
         mobAppearances ++= mobs
 
-      case MobDisappeared(id) =>
-        entityStates -= id
-        mobAppearances -= id
+      case MobDied(id) =>
+        val _ = entityStates.updateWith(id)(_.map(_.copy(dyingAnimationStarted = Some(now))))
+        ()
 
       case _: Pong | _: SessionEstablished =>
         throw new RuntimeException("This should not happen")
@@ -282,9 +288,13 @@ class Game(
     }
 
   private def renderEntities(now: Double): Unit = {
+    def isHiddenDying(entity: EntityState): Boolean =
+      entity.dyingAnimationStarted.exists(t => ((t - now) / EntityState.dyingAnimationPeriod).toInt % 2 == 0)
+
     val entities = entityStates.toArray
     entities.sortInPlaceBy(_._2.position.y)
     entities.foreach {
+      case (_, entity) if isHiddenDying(entity) => ()
       case (entityId, entity) =>
         val (entityRect, baseSpriteIndex) = entityId match {
           case PlayerId(_) =>

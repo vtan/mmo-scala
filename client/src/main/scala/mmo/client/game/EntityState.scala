@@ -12,7 +12,8 @@ final case class EntityState(
   lookDirection: LookDirection,
   directionLastChangedAt: Double,
   lastServerEventAt: Double,
-  attackAnimationStarted: Double
+  attackAnimationStarted: Double,
+  dyingAnimationStarted: Option[Double]
 ) {
 
   def applyPositionChange(update: EntityPositionsChanged.Entry, now: Double, calculateInterpolation: Boolean): EntityState =
@@ -37,7 +38,9 @@ final case class EntityState(
     )
 
   def spriteOffsetAt(time: Double): Int =
-    if (time < attackAnimationStarted + Constants.playerAttackLength) {
+    if (dyingAnimationStarted.isDefined) {
+      lookDirection.spriteIndex
+    } else if (time < attackAnimationStarted + Constants.playerAttackLength) {
       val t = (time - attackAnimationStarted) / Constants.playerAttackLength
       val offset = (t * 5).toInt match {
         case 0 => 0
@@ -65,6 +68,8 @@ final case class EntityState(
 
 object EntityState {
   val interpolationPeriod = 0.1
+  val dyingAnimationPeriod = 0.15
+  val dyingAnimationLength = 8 * dyingAnimationPeriod
 
   def newAt(update: EntityPositionsChanged.Entry, now: Double): EntityState =
     EntityState(
@@ -76,6 +81,7 @@ object EntityState {
       lookDirection = update.lookDirection,
       directionLastChangedAt = now,
       lastServerEventAt = now,
-      attackAnimationStarted = Double.NegativeInfinity
+      attackAnimationStarted = Double.NegativeInfinity,
+      dyingAnimationStarted = None
     )
 }

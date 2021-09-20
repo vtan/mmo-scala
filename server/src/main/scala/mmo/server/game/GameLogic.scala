@@ -258,7 +258,7 @@ class GameLogic(
       }
     hitMob match {
       case Some(mob) =>
-        broadcastToMap(MobDisappeared(mob.id), mob.mapId)(state.players.values)
+        broadcastToMap(MobDied(mob.id), mob.mapId)(state.players.values)
         val respawnAt = state.serverTime.plusSeconds(10)
         state.copy(
           mobs = state.mobs - mob.id,
