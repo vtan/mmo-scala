@@ -8,6 +8,7 @@ import mmo.common.map.GameMap
 
 import org.lwjgl.glfw.GLFW._
 import org.lwjgl.nanovg.NanoVG._
+import org.lwjgl.nanovg.NVGColor
 import org.lwjgl.opengl.GL11C._
 import scala.collection.mutable
 
@@ -45,6 +46,7 @@ class Game(
   private val entityStates = mutable.Map.empty[EntityId, EntityState]
   private val mobAppearances = mutable.Map.empty[MobId, EntityAppearance]
   private var camera = Camera.centerOn(entityStates.get(playerId).fold(V2.zero)(_.position), gameMap.size, windowGeometry)
+  private val damageLabels = mutable.ArrayBuffer.empty[DamageLabel]
 
   private var debugShowHitbox: Boolean = false
 
@@ -80,6 +82,7 @@ class Game(
         entity
       }
     }
+    damageLabels.filterInPlace(_.startTime + DamageLabel.duration > now)
 
     var nextPlayerEvent = eventReceiver.poll()
     while (nextPlayerEvent != null) {
@@ -224,11 +227,24 @@ class Game(
         playerNames -= id
 
       case MobsAppeared(mobs) =>
-        mobAppearances ++= mobs
+        mobs.foreach { mob =>
+          mobAppearances(mob.id) = mob.appearance
+          entityStates(mob.id) = EntityState.newAt(mob, now)
+        }
 
       case MobDied(id) =>
         val _ = entityStates.updateWith(id)(_.map(_.copy(dyingAnimationStarted = Some(now))))
         ()
+
+      case EntityDamaged(id, damage, hitPoints) =>
+        entityStates.get(id).foreach { entity =>
+          damageLabels += DamageLabel(
+            initialPosition = entity.position + V2(0.5, 0),
+            startTime = now,
+            label = damage.toString
+          )
+          entityStates(id) = entity.copy(hitPoints = hitPoints)
+        }
 
       case _: Pong | _: SessionEstablished =>
         throw new RuntimeException("This should not happen")
@@ -242,6 +258,7 @@ class Game(
     nvgFontSize(nvg, 20)
 
     renderMapTiles(front = false)
+    renderHitPointBars()
     renderEntities(now)
     renderMapTiles(front = true)
 
@@ -257,6 +274,13 @@ class Game(
           renderText(nvg, playerNamePoint.x, playerNamePoint.y, playerNames.getOrElse(id, "???"))
         }
       case (_: MobId, _) => ()
+    }
+    nvgTextAlign(nvg, NVG_ALIGN_BOTTOM | NVG_ALIGN_CENTER)
+    damageLabels.foreach { label =>
+      val position = label.initialPosition + V2(0, (now - label.startTime) * DamageLabel.tilePerSecond)
+      camera.transformVisiblePoint(position).foreach { point =>
+        renderText(nvg, point.x, point.y, label.label, colors.red)
+      }
     }
 
     nvgTextAlign(nvg, NVG_ALIGN_TOP | NVG_ALIGN_LEFT)
@@ -315,6 +339,25 @@ class Game(
     }
   }
 
+  private def renderHitPointBars(): Unit =
+    entityStates.foreach {
+      case (_: MobId, entity) if entity.hitPoints < entity.maxHitPoints && entity.dyingAnimationStarted.isEmpty =>
+        val rect = Rect(entity.position + V2(0, 1.15), V2(1.0, 0.15))
+        camera.transformVisibleRect(rect).foreach {
+          case Rect(V2(x, y), V2(w, h)) =>
+            nvgFillColor(nvg, colors.darkGrey)
+            nvgBeginPath(nvg)
+            nvgRect(nvg, x.toFloat - 1, y.toFloat - 1, w.toFloat + 2, h.toFloat + 2)
+            nvgFill(nvg)
+
+            nvgFillColor(nvg, colors.red)
+            nvgBeginPath(nvg)
+            nvgRect(nvg, x.toFloat, y.toFloat, w.toFloat * entity.hitPoints / entity.maxHitPoints.toFloat, h.toFloat)
+            nvgFill(nvg)
+        }
+      case _ => ()
+    }
+
   private def renderEntityHitboxes(now: Double): Unit = {
     val regularColor = GlfwUtil.color(1, 1, 1, 0.6)
     val interpolationColor = GlfwUtil.color(1, 0, 1, 0.9)
@@ -361,16 +404,18 @@ class Game(
     }
   }
 
-  private def renderText(nvg: Long, x: Double, y: Double, str: String): Unit = {
+  private def renderText(nvg: Long, x: Double, y: Double, str: String, color: NVGColor = colors.white): Unit = {
     nvgFillColor(nvg, colors.textShadow)
     val _ = nvgText(nvg, (x + 1).toFloat, (y + 1).toFloat, str)
 
-    nvgFillColor(nvg, colors.white)
+    nvgFillColor(nvg, color)
     val _ = nvgText(nvg, x.toFloat, y.toFloat, str)
   }
 
   private object colors {
+    val darkGrey = GlfwUtil.color(0.2, 0.2, 0.2)
     val white = GlfwUtil.color(1, 1, 1)
+    val red = GlfwUtil.color(1, 0.3, 0.3)
     val textShadow = GlfwUtil.color(0, 0, 0, 0.7)
   }
 }

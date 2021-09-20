@@ -42,6 +42,18 @@ final case class OtherPlayerConnected(id: PlayerId, name: String) extends Player
 
 final case class OtherPlayerDisconnected(id: PlayerId) extends PlayerEvent
 
-final case class MobsAppeared(mobs: Seq[(MobId, EntityAppearance)]) extends PlayerEvent
+final case class MobsAppeared(mobs: Seq[MobAppeared]) extends PlayerEvent
+
+final case class MobAppeared(
+  id: MobId,
+  appearance: EntityAppearance,
+  maxHitPoints: Int,
+  hitPoints: Int,
+  position: V2[Double],
+  direction: Direction,
+  lookDirection: LookDirection
+)
 
 final case class MobDied(id: MobId) extends PlayerEvent
+
+final case class EntityDamaged(id: EntityId, damage: Int, hitPoints: Int) extends PlayerEvent

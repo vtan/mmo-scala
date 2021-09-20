@@ -1,6 +1,6 @@
 package mmo.client.game
 
-import mmo.common.api.{Constants, Direction, EntityPositionsChanged, LookDirection}
+import mmo.common.api.{Constants, Direction, EntityPositionsChanged, LookDirection, MobAppeared}
 import mmo.common.linear.V2
 
 final case class EntityState(
@@ -13,7 +13,9 @@ final case class EntityState(
   directionLastChangedAt: Double,
   lastServerEventAt: Double,
   attackAnimationStarted: Double,
-  dyingAnimationStarted: Option[Double]
+  dyingAnimationStarted: Option[Double],
+  maxHitPoints: Int,
+  hitPoints: Int
 ) {
 
   def applyPositionChange(update: EntityPositionsChanged.Entry, now: Double, calculateInterpolation: Boolean): EntityState =
@@ -82,6 +84,24 @@ object EntityState {
       directionLastChangedAt = now,
       lastServerEventAt = now,
       attackAnimationStarted = Double.NegativeInfinity,
-      dyingAnimationStarted = None
+      dyingAnimationStarted = None,
+      maxHitPoints = 1,
+      hitPoints = 0
+    )
+
+  def newAt(event: MobAppeared, now: Double): EntityState =
+    EntityState(
+      position = event.position,
+      lastPositionFromServer = event.position,
+      interpolationSource = event.position,
+      interpolationTarget = event.position,
+      direction = event.direction,
+      lookDirection = event.lookDirection,
+      directionLastChangedAt = now,
+      lastServerEventAt = now,
+      attackAnimationStarted = Double.NegativeInfinity,
+      dyingAnimationStarted = None,
+      maxHitPoints = event.maxHitPoints,
+      hitPoints = event.hitPoints
     )
 }

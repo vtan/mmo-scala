@@ -13,6 +13,9 @@ final case class GameState(
   def updatePlayer(id: PlayerId, state: PlayerState): GameState =
     copy(players = players.updated(id, state))
 
+  def updateMob(mob: Mob): GameState =
+    copy(mobs = mobs.updated(mob.id, mob))
+
   def removePlayer(id: PlayerId): GameState =
     copy(players = players.removed(id))
 

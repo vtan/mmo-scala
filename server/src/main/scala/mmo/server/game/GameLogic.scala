@@ -44,9 +44,6 @@ class GameLogic(
     )(newState.players.values)
 
     broadcastMapEnter(player, previousMapId = None)(newState)
-    queue.offer(EntityPositionsChanged(
-      state.players.values.filter(_.mapId == mapId).map(playerStateToEvent).toSeq
-    ))
     newState
   }
 
@@ -140,13 +137,10 @@ class GameLogic(
     val (mobsToRespawn, remaining) = state.mobsToRespawn.partition(_._1.isBefore(state.serverTime))
     val newMobs = mobsToRespawn.map(_._2).map(spawnMob)
     newMobs.foreach { mob =>
-      val (positionChange, appearance) = newMobToEvents(mob)
+      val event = mobApperanceEvent(mob)
       state.players.values
         .filter(_.mapId == mob.mapId)
-        .foreach { player =>
-          player.queue.offer(MobsAppeared(Seq(appearance)))
-          player.queue.offer(EntityPositionsChanged(Seq(positionChange)))
-        }
+        .foreach(_.queue.offer(MobsAppeared(Seq(event))))
     }
     state.copy(
       mobsToRespawn = remaining,
@@ -168,14 +162,13 @@ class GameLogic(
 
       val event: Seq[PlayerEvent] = if (recipient.id == player.id) {
         val playersOnMap = state.players.filter(_._2.mapId == player.mapId).values
-        val (mobPositions, mobAppearances) = state.mobs.values
+        val mobsAppeared = state.mobs.values
           .filter(_.mapId == player.mapId)
-          .map(newMobToEvents)
-          .unzip
+          .map(mobApperanceEvent)
 
-        val entities = playersOnMap.map(playerStateToEvent) ++ mobPositions
+        val entities = playersOnMap.map(playerStateToEvent)
         List(
-          MobsAppeared(mobAppearances.toSeq),
+          MobsAppeared(mobsAppeared.toSeq),
           EntityPositionsChanged(entities.toSeq)
         )
       } else if (isOnTargetMap) {
@@ -204,15 +197,16 @@ class GameLogic(
   private def playerStateToEvent(player: PlayerState): EntityPositionsChanged.Entry =
     EntityPositionsChanged.Entry(player.id, player.position, player.direction, player.lookDirection)
 
-  private def newMobToEvents(mob: Mob): (EntityPositionsChanged.Entry, (MobId, EntityAppearance)) = {
-    val positionChanged = EntityPositionsChanged.Entry(
-      entityId = mob.id,
+  private def mobApperanceEvent(mob: Mob): MobAppeared =
+    MobAppeared(
+      id = mob.id,
+      appearance = mob.template.appearance,
+      maxHitPoints = mob.template.maxHitPoints,
+      hitPoints = mob.hitPoints,
       position = mob.position,
       lookDirection = mob.lookDirection,
       direction = Direction.none
     )
-    (positionChanged, mob.id -> mob.template.appearance)
-  }
 
   private def findTeleportAt(
     oldPosition: V2[Double],
@@ -235,11 +229,12 @@ class GameLogic(
     )
     Mob(
       id = MobId.nextId(),
+      template = template,
+      spawn = mobSpawn,
       mapId = mobSpawn.mapId,
       position = mobSpawn.position,
       lookDirection = LookDirection.down,
-      template = template,
-      spawn = mobSpawn
+      hitPoints = template.maxHitPoints
     )
   }
 
@@ -258,12 +253,21 @@ class GameLogic(
       }
     hitMob match {
       case Some(mob) =>
-        broadcastToMap(MobDied(mob.id), mob.mapId)(state.players.values)
-        val respawnAt = state.serverTime.plusSeconds(10)
-        state.copy(
-          mobs = state.mobs - mob.id,
-          mobsToRespawn = state.mobsToRespawn :+ (respawnAt -> mob.spawn)
-        )
+        val damage = 1
+        val remainingHitPoints = Math.max(0, mob.hitPoints - damage)
+        val entityDamaged = EntityDamaged(mob.id, damage = damage, hitPoints = remainingHitPoints)
+        if (remainingHitPoints > 0) {
+          broadcastToMap(entityDamaged, mob.mapId)(state.players.values)
+          state.updateMob(mob.copy(hitPoints = remainingHitPoints))
+        } else {
+          broadcastToMap(entityDamaged, mob.mapId)(state.players.values)
+          broadcastToMap(MobDied(mob.id), mob.mapId)(state.players.values)
+          val respawnAt = state.serverTime.plusSeconds(10)
+          state.copy(
+            mobs = state.mobs - mob.id,
+            mobsToRespawn = state.mobsToRespawn :+ (respawnAt -> mob.spawn)
+          )
+        }
       case None => state
     }
   }
