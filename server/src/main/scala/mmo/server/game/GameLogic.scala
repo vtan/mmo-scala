@@ -158,7 +158,7 @@ class GameLogic(
         case (mapId, mobsOnMap) =>
           val map = maps(mapId).gameMap
           val (movedMobs, shouldBroadcast) = mobsOnMap.map { mob =>
-            val moved = moveMob(map, state.tick)(mob)
+            val moved = moveMob(map)(mob)
             val changedDirection = mob.direction != moved.direction
             val enoughTicksPassed = state.tick - mob.lastBroadcastTick >= largeTickFrequency
             moved -> (changedDirection || enoughTicksPassed)
@@ -174,18 +174,37 @@ class GameLogic(
     state.updateMobs(mobs)
   }
 
-  private def moveMob(map: GameMap, tick: Long)(mob: Mob): Mob = {
-    val nextPosition = mob.position + (Constants.mobTilePerSecond / ticksPerSecond) *: mob.direction.vector
-    val wouldCollide = map.doesRectCollide(mob.template.appearance.collisionBox.translate(nextPosition))
-    val wouldBeFarFromSpawn = (nextPosition - mob.spawn.position).lengthSq >= 8 * 8
+  private def moveMob(map: GameMap)(mob: Mob): Mob = {
 
-    if (wouldCollide || wouldBeFarFromSpawn) {
-      mob.copy(direction = mob.direction.inverse)
+    def nextPositionAlong(direction: Direction, dt: Double): V2[Double] =
+      mob.position + (dt * Constants.mobTilePerSecond / ticksPerSecond) *: direction.vector
+
+    def isIllegal(position: V2[Double]): Boolean = {
+      val wouldCollide = map.doesRectCollide(mob.template.appearance.collisionBox.translate(position))
+      val wouldBeFarFromSpawn = (position - mob.spawn.position).lengthSq >= 6 * 6
+      wouldCollide || wouldBeFarFromSpawn
+    }
+
+    val nextPosition = nextPositionAlong(mob.direction, dt = 1)
+
+    if (isIllegal(nextPosition)) {
+      val candidates = Direction.allMoving.collect(Function.unlift { dir =>
+        val pos = nextPositionAlong(dir, dt = 1)
+        if (!isIllegal(pos) && !isIllegal(nextPositionAlong(dir, dt = 5))) {
+          Some(dir -> pos)
+        } else {
+          None
+        }
+      })
+      random.shuffle(candidates) match {
+        case (direction, position) +: _ =>
+          mob.copy(direction = direction, position = position)
+        case _ =>
+          mob.copy(direction = mob.direction.inverse)
+      }
     } else if (!mob.direction.isMoving || random.nextDouble() < 0.01) {
       val newDirection = Direction.random
       mob.copy(position = nextPosition, direction = newDirection)
-    } else if (tick - mob.lastBroadcastTick >= largeTickFrequency) {
-      mob.copy(position = nextPosition)
     } else {
       mob.copy(position = nextPosition)
     }

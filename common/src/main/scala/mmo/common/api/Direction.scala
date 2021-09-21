@@ -24,6 +24,8 @@ object Direction {
   val leftUp = Direction(7)
   val rightUp = Direction(8)
 
+  val allMoving: Seq[Direction] = (1 to 8).map(Direction(_))
+
   def random(implicit rnd: Random): Direction = Direction(1 + rnd.nextInt(8))
 
   private val vectors: Array[V2[Double]] = Array(
