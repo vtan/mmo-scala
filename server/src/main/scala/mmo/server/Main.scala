@@ -47,7 +47,7 @@ object Main {
         appearance = EntityAppearance(
           spriteOffset = 64,
           spriteBoundary = Rect(0, 3.0 / 16, 1, 1 - 3.0 / 16),
-          collisionBox = Rect(0, 0.75, 1, 0.25)
+          collisionBox = Rect(0.02, 0.75, 1 - 0.04, 0.25)
         ),
         maxHitPoints = 6
 
@@ -57,7 +57,7 @@ object Main {
         appearance = EntityAppearance(
           spriteOffset = 65,
           spriteBoundary = Rect(0, 3.0 / 16, 1, 1 - 3.0 / 16),
-          collisionBox = Rect(0, 0.75, 1, 0.25)
+          collisionBox = Rect(0.02, 0.75, 1 - 0.04, 0.25)
         ),
         maxHitPoints = 10
       )

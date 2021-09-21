@@ -2,10 +2,13 @@ package mmo.common.api
 
 import mmo.common.linear.V2
 
+import scala.util.Random
+
 final case class Direction(asInt: Int) extends AnyVal {
 
   def vector: V2[Double] = Direction.vectors(asInt)
   def lookDirection: LookDirection = Direction.lookDirections(asInt)
+  def inverse: Direction = Direction.inverses(asInt)
 
   def isMoving: Boolean = asInt != 0
 }
@@ -20,6 +23,8 @@ object Direction {
   val leftDown = Direction(6)
   val leftUp = Direction(7)
   val rightUp = Direction(8)
+
+  def random(implicit rnd: Random): Direction = Direction(1 + rnd.nextInt(8))
 
   private val vectors: Array[V2[Double]] = Array(
     V2(0, 0),
@@ -46,5 +51,17 @@ object Direction {
     LookDirection.left,
     LookDirection.left,
     LookDirection.right
+  )
+
+  private val inverses: Array[Direction] = Array(
+    Direction.none,
+    Direction.left,
+    Direction.up,
+    Direction.right,
+    Direction.down,
+    Direction.leftUp,
+    Direction.rightUp,
+    Direction.rightDown,
+    Direction.leftDown
   )
 }

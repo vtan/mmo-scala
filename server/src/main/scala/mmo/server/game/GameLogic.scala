@@ -2,16 +2,25 @@ package mmo.server.game
 
 import mmo.common.api._
 import mmo.common.linear.V2
+import mmo.common.map.GameMap
 import mmo.server.game.ServerGameMap.MobSpawn
 
 import akka.stream.scaladsl.SourceQueueWithComplete
 import java.util.UUID
+import scala.concurrent.duration._
+import scala.util.Random
 
 class GameLogic(
   maps: Map[Id[ServerGameMap], ServerGameMap],
   mapNames: Map[String, Id[ServerGameMap]],
   mobTemplates: Map[String, MobTemplate]
 ) {
+
+  val tickPeriod: FiniteDuration = 100.millis
+  private val ticksPerSecond: Double = 1.second / tickPeriod
+  private val largeTickFrequency: Int = ticksPerSecond.toInt
+
+  private implicit val random: Random = new Random()
 
   private object positionConstraints {
     // TODO this is flaky
@@ -38,12 +47,12 @@ class GameLogic(
     val playerNames = newState.players.map { case (id, player) => id -> player.name }.toSeq
 
     queue.offer(SessionEstablished(playerId, playerNames, map.compactGameMap))
-    broadcastExcept(
+    Broadcast.except(
       OtherPlayerConnected(player.id, player.name),
       player.id
     )(newState.players.values)
 
-    broadcastMapEnter(player, previousMapId = None)(newState)
+    Broadcast.mapEnter(player, previousMapId = None)(newState)
     newState
   }
 
@@ -77,7 +86,7 @@ class GameLogic(
             )
             val newState = state.updatePlayer(newPlayer.id, newPlayer)
             newPlayer.queue.offer(Teleported(targetMap.compactGameMap))
-            broadcastMapEnter(newPlayer, Some(existing.mapId))(newState)
+            Broadcast.mapEnter(newPlayer, Some(existing.mapId))(newState)
             newState
 
           case None =>
@@ -97,14 +106,14 @@ class GameLogic(
               )
             }
             val newState = state.updatePlayer(newPlayer.id, newPlayer)
-            broadcastPlayerPosition(newPlayer, ack = !invalid)(newState.players.values)
+            Broadcast.playerPosition(newPlayer, ack = !invalid)(newState.players.values)
             newState
         }
 
       case PlayerCommand.Attack(target) =>
         val player = state.players(playerId)
         if ((state.serverTime - player.attackStartedAt).toSeconds > Constants.playerAttackLength) {
-          broadcastToMapExcept(
+          Broadcast.toMapExcept(
             EntityAttacked(playerId),
             player.mapId,
             except = player.id
@@ -128,16 +137,65 @@ class GameLogic(
     val newState = state.removePlayer(id)
     state.players.get(id).foreach { player =>
       player.queue.complete()
-      broadcastEvent(OtherPlayerDisconnected(id))(newState.players.values)
+      Broadcast.event(OtherPlayerDisconnected(id))(newState.players.values)
     }
     newState
   }
 
   def timerTicked(state: GameState): GameState = {
+    val afterSmallTick = moveMobs(state)
+    if (state.tick % largeTickFrequency == 0) {
+      respawnMobs(afterSmallTick)
+    } else {
+      afterSmallTick
+    }
+  }
+
+  private def moveMobs(state: GameState): GameState = {
+    val mobs = state.mobs.values
+      .groupBy(_.mapId)
+      .flatMap {
+        case (mapId, mobsOnMap) =>
+          val map = maps(mapId).gameMap
+          val (movedMobs, shouldBroadcast) = mobsOnMap.map { mob =>
+            val moved = moveMob(map, state.tick)(mob)
+            val changedDirection = mob.direction != moved.direction
+            val enoughTicksPassed = state.tick - mob.lastBroadcastTick >= largeTickFrequency
+            moved -> (changedDirection || enoughTicksPassed)
+          }.unzip
+          if (shouldBroadcast.exists(identity)) {
+            val mobs = movedMobs.map(_.copy(lastBroadcastTick = state.tick))
+            Broadcast.toMap(EntityPositionsChanged(mobs.map(_.toPositionChange).toSeq), mapId)(state.players.values)
+            mobs
+          } else {
+            movedMobs
+          }
+      }
+    state.updateMobs(mobs)
+  }
+
+  private def moveMob(map: GameMap, tick: Long)(mob: Mob): Mob = {
+    val nextPosition = mob.position + (Constants.mobTilePerSecond / ticksPerSecond) *: mob.direction.vector
+    val wouldCollide = map.doesRectCollide(mob.template.appearance.collisionBox.translate(nextPosition))
+    val wouldBeFarFromSpawn = (nextPosition - mob.spawn.position).lengthSq >= 8 * 8
+
+    if (wouldCollide || wouldBeFarFromSpawn) {
+      mob.copy(direction = mob.direction.inverse)
+    } else if (!mob.direction.isMoving || random.nextDouble() < 0.01) {
+      val newDirection = Direction.random
+      mob.copy(position = nextPosition, direction = newDirection)
+    } else if (tick - mob.lastBroadcastTick >= largeTickFrequency) {
+      mob.copy(position = nextPosition)
+    } else {
+      mob.copy(position = nextPosition)
+    }
+  }
+
+  private def respawnMobs(state: GameState): GameState = {
     val (mobsToRespawn, remaining) = state.mobsToRespawn.partition(_._1.isBefore(state.serverTime))
     val newMobs = mobsToRespawn.map(_._2).map(spawnMob)
     newMobs.foreach { mob =>
-      val event = mobApperanceEvent(mob)
+      val event = mob.toEvent
       state.players.values
         .filter(_.mapId == mob.mapId)
         .foreach(_.queue.offer(MobsAppeared(Seq(event))))
@@ -147,66 +205,6 @@ class GameLogic(
       mobs = state.mobs ++ newMobs.map(m => m.id -> m).toMap
     )
   }
-
-  private def broadcastPlayerPosition(player: PlayerState, ack: Boolean)(players: Iterable[PlayerState]): Unit = {
-    val toOthers = EntityPositionsChanged(Seq(playerStateToEvent(player)))
-    val toPlayer = if (ack) MovementAcked(player.position) else toOthers
-    player.queue.offer(toPlayer)
-    broadcastToMapExcept(toOthers, player.mapId, except = player.id)(players)
-  }
-
-  private def broadcastMapEnter(player: PlayerState, previousMapId: Option[Id[ServerGameMap]])(state: GameState): Unit =
-    state.players.values.foreach { recipient =>
-      val isOnTargetMap = recipient.mapId == player.mapId
-      val isOnPreviousMap = previousMapId.contains(recipient.mapId)
-
-      val event: Seq[PlayerEvent] = if (recipient.id == player.id) {
-        val playersOnMap = state.players.filter(_._2.mapId == player.mapId).values
-        val mobsAppeared = state.mobs.values
-          .filter(_.mapId == player.mapId)
-          .map(mobApperanceEvent)
-
-        val entities = playersOnMap.map(playerStateToEvent)
-        List(
-          MobsAppeared(mobsAppeared.toSeq),
-          EntityPositionsChanged(entities.toSeq)
-        )
-      } else if (isOnTargetMap) {
-        List(EntityPositionsChanged(Seq(playerStateToEvent(player))))
-      } else if (isOnPreviousMap) {
-        List(OtherPlayerDisappeared(player.id))
-      } else {
-        Nil
-      }
-
-      event.foreach(recipient.queue.offer)
-    }
-
-  private def broadcastEvent(event: PlayerEvent)(players: Iterable[PlayerState]): Unit =
-    players.foreach(_.queue.offer(event))
-
-  private def broadcastExcept(event: PlayerEvent, except: PlayerId)(players: Iterable[PlayerState]): Unit =
-    broadcastEvent(event)(players.filter(_.id != except))
-
-  private def broadcastToMap(event: PlayerEvent, mapId: Id[ServerGameMap])(players: Iterable[PlayerState]): Unit =
-    broadcastEvent(event)(players.filter(p => p.mapId == mapId))
-
-  private def broadcastToMapExcept(event: PlayerEvent, mapId: Id[ServerGameMap], except: PlayerId)(players: Iterable[PlayerState]): Unit =
-    broadcastEvent(event)(players.filter(p => p.id != except && p.mapId == mapId))
-
-  private def playerStateToEvent(player: PlayerState): EntityPositionsChanged.Entry =
-    EntityPositionsChanged.Entry(player.id, player.position, player.direction, player.lookDirection)
-
-  private def mobApperanceEvent(mob: Mob): MobAppeared =
-    MobAppeared(
-      id = mob.id,
-      appearance = mob.template.appearance,
-      maxHitPoints = mob.template.maxHitPoints,
-      hitPoints = mob.hitPoints,
-      position = mob.position,
-      lookDirection = mob.lookDirection,
-      direction = Direction.none
-    )
 
   private def findTeleportAt(
     oldPosition: V2[Double],
@@ -233,8 +231,10 @@ class GameLogic(
       spawn = mobSpawn,
       mapId = mobSpawn.mapId,
       position = mobSpawn.position,
+      direction = Direction.none,
       lookDirection = LookDirection.down,
-      hitPoints = template.maxHitPoints
+      hitPoints = template.maxHitPoints,
+      lastBroadcastTick = 0
     )
   }
 
@@ -257,11 +257,11 @@ class GameLogic(
         val remainingHitPoints = Math.max(0, mob.hitPoints - damage)
         val entityDamaged = EntityDamaged(mob.id, damage = damage, hitPoints = remainingHitPoints)
         if (remainingHitPoints > 0) {
-          broadcastToMap(entityDamaged, mob.mapId)(state.players.values)
+          Broadcast.toMap(entityDamaged, mob.mapId)(state.players.values)
           state.updateMob(mob.copy(hitPoints = remainingHitPoints))
         } else {
-          broadcastToMap(entityDamaged, mob.mapId)(state.players.values)
-          broadcastToMap(MobDied(mob.id), mob.mapId)(state.players.values)
+          Broadcast.toMap(entityDamaged, mob.mapId)(state.players.values)
+          Broadcast.toMap(MobDied(mob.id), mob.mapId)(state.players.values)
           val respawnAt = state.serverTime.plusSeconds(10)
           state.copy(
             mobs = state.mobs - mob.id,

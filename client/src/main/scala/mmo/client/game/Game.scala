@@ -72,7 +72,7 @@ class Game(
       case _ => true
     }
     entityStates.mapValuesInPlace { (entityId, entity) =>
-      if (entity.direction.isMoving) {
+      if (entity.direction.isMoving && entity.dyingAnimationStarted.isEmpty) {
         if (entityId == playerId) {
           updateSelfMovement(self = entity, dt = dt)
         } else {
@@ -151,7 +151,7 @@ class Game(
 
   private def updateSelfMovement(self: EntityState, dt: Double): EntityState = {
     val normal = self.direction.vector
-    val positionChange = (dt * Constants.entityTilePerSecond) *: normal
+    val positionChange = (dt * Constants.playerTilePerSecond) *: normal
     val newPosition = self.position + positionChange
     val hitbox = Constants.playerHitbox.translate(newPosition)
     if (gameMap.doesRectCollide(hitbox)) {
@@ -180,7 +180,7 @@ class Game(
       val position = V2.lerp(t, entity.interpolationSource, entity.interpolationTarget)
       entity.copy(position = position)
     } else {
-      val extrapolatedMovement = ((now - entity.lastServerEventAt) * Constants.entityTilePerSecond) *: entity.direction.vector
+      val extrapolatedMovement = ((now - entity.lastServerEventAt) * entity.speedTilePerSecond) *: entity.direction.vector
       val position = entity.lastPositionFromServer + extrapolatedMovement
       entity.copy(position = position)
     }
@@ -233,7 +233,10 @@ class Game(
         }
 
       case MobDied(id) =>
-        val _ = entityStates.updateWith(id)(_.map(_.copy(dyingAnimationStarted = Some(now))))
+        val _ = entityStates.updateWith(id)(_.map(_.copy(
+          dyingAnimationStarted = Some(now),
+          direction = Direction.none
+        )))
         ()
 
       case EntityDamaged(id, damage, hitPoints) =>
@@ -320,11 +323,12 @@ class Game(
     entities.foreach {
       case (_, entity) if isHiddenDying(entity) => ()
       case (entityId, entity) =>
-        val (entityRect, baseSpriteIndex) = entityId match {
+        val (entityRect, spriteIndex) = entityId match {
           case PlayerId(_) =>
             val sizeInTiles = V2(1, 2)
             val rect = Rect(xy = entity.position - V2(0.0, 1.0), wh = sizeInTiles.map(_.toDouble))
-            (rect, 0)
+            val baseIndex = 0
+            (rect, baseIndex + entity.spriteOffsetAt(now))
           case mobId: MobId =>
             (Rect(xy = entity.position, V2(1.0, 1.0)), mobAppearances(mobId).spriteOffset)
         }
@@ -332,7 +336,7 @@ class Game(
           charAtlas.render(
             nvg,
             rectOnScreen = screenRect,
-            tileIndex = baseSpriteIndex + entity.spriteOffsetAt(now),
+            tileIndex = spriteIndex,
             scaleFactor = windowGeometry.scaleFactor
           )
         }

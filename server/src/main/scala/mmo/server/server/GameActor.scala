@@ -7,7 +7,6 @@ import akka.actor.typed.Behavior
 import akka.actor.typed.scaladsl.Behaviors
 import akka.stream.scaladsl.SourceQueueWithComplete
 import org.slf4j.LoggerFactory
-import scala.concurrent.duration._
 
 object GameActor {
   sealed trait Message
@@ -30,7 +29,7 @@ class GameActor(
 
   def start: Behavior[Message] =
     Behaviors.withTimers { timer =>
-      timer.startTimerAtFixedRate(Tick, 1.second)
+      timer.startTimerAtFixedRate(Tick, logic.tickPeriod)
       running(state = logic.initialGameState)
     }
 
@@ -66,6 +65,6 @@ class GameActor(
         running(logic.disconnectPlayer(playerId)(state))
 
       case Tick =>
-        running(logic.timerTicked(state.updateServerTime()))
+        running(logic.timerTicked(state.updateServerTime().increaseTick))
     }
 }
