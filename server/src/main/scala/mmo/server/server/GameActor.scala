@@ -1,7 +1,7 @@
 package mmo.server.server
 
 import mmo.common.api._
-import mmo.server.game.{GameLogic, GameState, MobTemplate, ServerGameMap}
+import mmo.server.game.{GameLogic, GameState, MobTemplate, ServerGameMap, Tick}
 
 import akka.actor.typed.Behavior
 import akka.actor.typed.scaladsl.Behaviors
@@ -13,7 +13,7 @@ object GameActor {
   final case class Connected(id: PlayerId, queue: SourceQueueWithComplete[PlayerEvent]) extends Message
   final case class PlayerCommandReceived(id: PlayerId, command: PlayerCommand) extends Message
   final case class Disconnected(id: PlayerId) extends Message
-  case object Tick extends Message
+  case object Ticked extends Message
 }
 
 class GameActor(
@@ -29,7 +29,7 @@ class GameActor(
 
   def start: Behavior[Message] =
     Behaviors.withTimers { timer =>
-      timer.startTimerAtFixedRate(Tick, logic.tickPeriod)
+      timer.startTimerAtFixedRate(Ticked, Tick.tickPeriod)
       running(state = logic.initialGameState)
     }
 
@@ -64,7 +64,7 @@ class GameActor(
       case Disconnected(playerId) =>
         running(logic.disconnectPlayer(playerId)(state))
 
-      case Tick =>
+      case Ticked =>
         running(logic.timerTicked(state.updateServerTime().increaseTick))
     }
 }

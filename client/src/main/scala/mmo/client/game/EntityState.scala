@@ -1,6 +1,6 @@
 package mmo.client.game
 
-import mmo.common.api.{Constants, Direction, EntityPositionsChanged, LookDirection, MobAppeared, MobId, PlayerId}
+import mmo.common.api.{Constants, Direction, EntityPositionsChanged, LookDirection, EntityAppeared, MobId, PlayerId}
 import mmo.common.linear.V2
 
 final case class EntityState(
@@ -94,14 +94,17 @@ object EntityState {
       hitPoints = 0
     )
 
-  def newAt(event: MobAppeared, now: Double): EntityState =
+  def newAt(event: EntityAppeared, now: Double): EntityState =
     EntityState(
       position = event.position,
       lastPositionFromServer = event.position,
       interpolationSource = event.position,
       interpolationTarget = event.position,
       direction = event.direction,
-      speedTilePerSecond = Constants.mobTilePerSecond,
+      speedTilePerSecond = event.id match {
+        case _: PlayerId => Constants.playerTilePerSecond
+        case _: MobId => Constants.mobTilePerSecond
+      },
       lookDirection = event.lookDirection,
       directionLastChangedAt = now,
       lastServerEventAt = now,

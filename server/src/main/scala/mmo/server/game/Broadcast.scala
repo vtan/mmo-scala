@@ -1,11 +1,11 @@
 package mmo.server.game
 
-import mmo.common.api.{EntityPositionsChanged, Id, MobsAppeared, MovementAcked, OtherPlayerDisappeared, PlayerEvent, PlayerId}
+import mmo.common.api.{EntityPositionsChanged, Id, EntitiesAppeared, MovementAcked, OtherPlayerDisappeared, PlayerEvent, PlayerId}
 
 object Broadcast {
 
   def playerPosition(player: PlayerState, ack: Boolean)(players: Iterable[PlayerState]): Unit = {
-    val toOthers = EntityPositionsChanged(Seq(player.toEvent))
+    val toOthers = EntityPositionsChanged(Seq(player.toPositionChange))
     val toPlayer = if (ack) MovementAcked(player.position) else toOthers
     player.queue.offer(toPlayer)
     this.toMapExcept(toOthers, player.mapId, except = player.id)(players)
@@ -16,26 +16,23 @@ object Broadcast {
       val isOnTargetMap = recipient.mapId == player.mapId
       val isOnPreviousMap = previousMapId.contains(recipient.mapId)
 
-      val event: Seq[PlayerEvent] = if (recipient.id == player.id) {
+      val events: Seq[PlayerEvent] = if (recipient.id == player.id) {
         val playersOnMap = state.players.filter(_._2.mapId == player.mapId).values
         val mobsAppeared = state.mobs.values
           .filter(_.mapId == player.mapId)
           .map(_.toEvent(dt = state.secondsSinceLastTick))
+        val playersAppeared = playersOnMap.map(_.toAppearEvent)
 
-        val entities = playersOnMap.map(_.toEvent)
-        List(
-          MobsAppeared(mobsAppeared.toSeq),
-          EntityPositionsChanged(entities.toSeq)
-        )
+        List(EntitiesAppeared(mobsAppeared.toSeq ++ playersAppeared))
       } else if (isOnTargetMap) {
-        List(EntityPositionsChanged(Seq(player.toEvent)))
+        List(EntitiesAppeared(Seq(player.toAppearEvent)))
       } else if (isOnPreviousMap) {
         List(OtherPlayerDisappeared(player.id))
       } else {
         Nil
       }
 
-      event.foreach(recipient.queue.offer)
+      events.foreach(recipient.queue.offer)
     }
 
   def event(event: PlayerEvent)(players: Iterable[PlayerState]): Unit =

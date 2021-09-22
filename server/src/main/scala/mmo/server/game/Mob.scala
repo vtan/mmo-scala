@@ -1,6 +1,6 @@
 package mmo.server.game
 
-import mmo.common.api.{Constants, Direction, EntityPositionsChanged, Id, LookDirection, MobAppeared, MobId}
+import mmo.common.api.{Constants, Direction, EntityAppeared, EntityPositionsChanged, Id, LookDirection, MobId}
 import mmo.common.linear.V2
 import mmo.server.game.ServerGameMap.MobSpawn
 
@@ -13,11 +13,14 @@ final case class Mob(
   direction: Direction,
   lookDirection: LookDirection,
   hitPoints: Int,
-  lastBroadcastTick: Long
+  lastBroadcastTick: Long,
+  lastAttackTick: Long
 ) {
 
-  def toEvent(dt: Double): MobAppeared =
-    MobAppeared(
+  def collisionBoxCenter: V2[Double] = position + template.appearance.collisionCenter
+
+  def toEvent(dt: Double): EntityAppeared =
+    EntityAppeared(
       id = id,
       appearance = template.appearance,
       maxHitPoints = template.maxHitPoints,

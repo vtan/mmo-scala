@@ -198,6 +198,8 @@ class Game(
               val calculateInterpolation = update.entityId != playerId
               Some(old.applyPositionChange(update, now, calculateInterpolation))
             case None =>
+              // TODO remove
+              println("This should not happen anymore")
               Some(EntityState.newAt(update, now))
           }
         }
@@ -229,10 +231,13 @@ class Game(
         entityStates -= id
         playerNames -= id
 
-      case MobsAppeared(mobs) =>
-        mobs.foreach { mob =>
-          mobAppearances(mob.id) = mob.appearance
-          entityStates(mob.id) = EntityState.newAt(mob, now)
+      case EntitiesAppeared(entities) =>
+        entities.foreach { entity =>
+          entityStates(entity.id) = EntityState.newAt(entity, now)
+          entity.id match {
+            case mobId: MobId => mobAppearances(mobId) = entity.appearance
+            case _: PlayerId => ()
+          }
         }
 
       case MobDied(id) =>
@@ -348,7 +353,7 @@ class Game(
 
   private def renderHitPointBars(): Unit =
     entityStates.foreach {
-      case (_: MobId, entity) if entity.hitPoints < entity.maxHitPoints && entity.dyingAnimationStarted.isEmpty =>
+      case (_, entity) if entity.hitPoints < entity.maxHitPoints && entity.dyingAnimationStarted.isEmpty =>
         val rect = Rect(entity.position + V2(0, 1.15), V2(1.0, 0.15))
         camera.transformVisibleRect(rect).foreach {
           case Rect(V2(x, y), V2(w, h)) =>

@@ -47,8 +47,8 @@ object Main {
           spriteBoundary = Rect(0, 3.0 / 16, 1, 1 - 3.0 / 16),
           collisionBox = Rect(0.02, 0.75, 1 - 0.04, 0.25)
         ),
-        maxHitPoints = 6
-
+        maxHitPoints = 6,
+        attackCooldownTicks = 10
       ),
       MobTemplate(
         name = "blue-slime",
@@ -57,7 +57,8 @@ object Main {
           spriteBoundary = Rect(0, 3.0 / 16, 1, 1 - 3.0 / 16),
           collisionBox = Rect(0.02, 0.75, 1 - 0.04, 0.25)
         ),
-        maxHitPoints = 10
+        maxHitPoints = 10,
+        attackCooldownTicks = 8
       )
     ).map(t => t.name -> t).toMap
 

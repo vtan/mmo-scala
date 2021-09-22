@@ -16,6 +16,9 @@ final case class GameState(
   def updatePlayer(id: PlayerId, state: PlayerState): GameState =
     copy(players = players.updated(id, state))
 
+  def updatePlayers(players: Iterable[PlayerState]): GameState =
+    copy(players = this.players ++ players.map(p => p.id -> p))
+
   def updateMob(mob: Mob): GameState =
     copy(mobs = mobs.updated(mob.id, mob))
 

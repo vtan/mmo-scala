@@ -7,7 +7,6 @@ import mmo.server.game.ServerGameMap.MobSpawn
 
 import akka.stream.scaladsl.SourceQueueWithComplete
 import java.util.UUID
-import scala.concurrent.duration._
 import scala.util.Random
 
 class GameLogic(
@@ -15,10 +14,6 @@ class GameLogic(
   mapNames: Map[String, Id[ServerGameMap]],
   mobTemplates: Map[String, MobTemplate]
 ) {
-
-  val tickPeriod: FiniteDuration = 100.millis
-  private val ticksPerSecond: Double = 1.second / tickPeriod
-  private val largeTickFrequency: Int = ticksPerSecond.toInt
 
   private implicit val random: Random = new Random()
 
@@ -29,6 +24,8 @@ class GameLogic(
     // Allow a diagonal tile traversal and some more
     val maxAllowedDistanceSqFromLast: Double = 2 * (1.1 * 1.1)
   }
+
+  private val mobAttackRangeSq = 1.0
 
   def initialGameState: GameState = {
     val mobs = maps.values.flatMap(_.mobSpawns.map(spawnMob))
@@ -41,7 +38,7 @@ class GameLogic(
   def playerConnected(playerId: PlayerId, queue: SourceQueueWithComplete[PlayerEvent])(state: GameState): GameState = {
     val name = UUID.randomUUID().toString.take(6).toUpperCase
     val (mapId, map) = maps.minBy(_._1.asLong)
-    val player = PlayerState(playerId, name, mapId, V2(2, 1), Direction.none, LookDirection.down, queue, ServerTime.now, ServerTime.now)
+    val player = PlayerState(playerId, name, mapId, V2(2, 1), Direction.none, LookDirection.down, Constants.playerMaxHitPoints, Constants.playerMaxHitPoints, queue, ServerTime.now, ServerTime.now)
 
     val newState = state.updatePlayer(player.id, player)
     val playerNames = newState.players.map { case (id, player) => id -> player.name }.toSeq
@@ -143,41 +140,73 @@ class GameLogic(
   }
 
   def timerTicked(state: GameState): GameState = {
-    val afterSmallTick = moveMobs(state)
-    if (state.tick % largeTickFrequency == 0) {
+    val afterSmallTick = updateMobs(state)
+    if (state.tick % Tick.largeTickFrequency == 0) {
       respawnMobs(afterSmallTick)
     } else {
       afterSmallTick
     }
   }
 
-  private def moveMobs(state: GameState): GameState = {
-    val mobs = state.mobs.values
+  private def updateMobs(state: GameState): GameState =
+    state.mobs.values
       .groupBy(_.mapId)
-      .flatMap {
-        case (mapId, mobsOnMap) =>
-          val map = maps(mapId).gameMap
-          val (movedMobs, shouldBroadcast) = mobsOnMap.map { mob =>
-            val moved = moveMob(map)(mob)
-            val changedDirection = mob.direction != moved.direction
-            val enoughTicksPassed = state.tick - mob.lastBroadcastTick >= largeTickFrequency
-            moved -> (changedDirection || enoughTicksPassed)
-          }.unzip
-          if (shouldBroadcast.exists(identity)) {
-            val mobs = movedMobs.map(_.copy(lastBroadcastTick = state.tick))
-            Broadcast.toMap(EntityPositionsChanged(mobs.map(_.toPositionChange).toSeq), mapId)(state.players.values)
-            mobs
-          } else {
-            movedMobs
-          }
+      .foldLeft(state) {
+        case (gs, (mapId, mobsOnMap)) =>
+          val map = maps(mapId)
+          updateMobsOnMap(map, mobsOnMap)(gs)
       }
-    state.updateMobs(mobs)
+
+  private def updateMobsOnMap(map: ServerGameMap, mobsOnMap: Iterable[Mob])(state: GameState): GameState = {
+    val players = state.players.values.filter(_.mapId == map.id)
+
+    val (movedMobs, shouldBroadcast, attacks) = mobsOnMap.map { mob =>
+      val attack = if (state.tick >= mob.lastAttackTick + mob.template.attackCooldownTicks) {
+        attackWithMob(mob, players)
+      } else {
+        None
+      }
+      val moved = moveMob(map.gameMap)(mob)
+      val attacked = if (attack.isDefined) moved.copy(lastAttackTick = state.tick) else moved
+      val changedDirection = mob.direction != attacked.direction
+      val enoughTicksPassed = state.tick - mob.lastBroadcastTick >= Tick.largeTickFrequency
+      (attacked, changedDirection || enoughTicksPassed, attack)
+    }.unzip3
+
+    val (damagedPlayers, damageEvents) = attacks
+      .collect { case Some(x) => x }
+      .groupMapReduce(_._1)(_._2)(_ + _)
+      .map {
+        case (playerId, damage) =>
+          val player = state.players(playerId)
+          val newHitPoints = (player.hitPoints - damage) match {
+            case n if n > 0 => n
+            case _ => player.maxHitPoints
+          }
+          player.copy(hitPoints = newHitPoints) -> EntityDamaged(playerId, damage, newHitPoints)
+      }
+      .unzip
+
+    val (tickedMobs, movementEvents) = if (shouldBroadcast.exists(identity)) {
+      val ticked = movedMobs.map(_.copy(lastBroadcastTick = state.tick))
+      val events = Seq(EntityPositionsChanged(ticked.map(_.toPositionChange).toSeq))
+      ticked -> events
+    } else {
+      movedMobs -> Seq.empty
+    }
+
+    // TODO merge them into one event
+    (movementEvents ++ damageEvents).foreach { event =>
+      Broadcast.toMap(event, map.id)(state.players.values)
+    }
+
+    state.updateMobs(tickedMobs).updatePlayers(damagedPlayers)
   }
 
   private def moveMob(map: GameMap)(mob: Mob): Mob = {
 
     def nextPositionAlong(position: V2[Double], direction: Direction, dt: Double) : V2[Double] =
-      position + (dt * Constants.mobTilePerSecond / ticksPerSecond) *: direction.vector
+      position + (dt * Constants.mobTilePerSecond / Tick.ticksPerSecond) *: direction.vector
 
     def isIllegal(position: V2[Double]): Boolean = {
       val wouldCollide = map.doesRectCollide(mob.template.appearance.collisionBox.translate(position))
@@ -214,6 +243,13 @@ class GameLogic(
     }
   }
 
+  private def attackWithMob(mob: Mob, players: Iterable[PlayerState]): Option[(PlayerId, Int)] = {
+    val candidates = players.filter { player =>
+      (player.collisionBoxCenter - mob.collisionBoxCenter).lengthSq <= mobAttackRangeSq
+    }
+    random.shuffle(candidates).headOption.map(_.id -> 1)
+  }
+
   private def respawnMobs(state: GameState): GameState = {
     // TODO: measure respawn time in ticks
     val (mobsToRespawn, remaining) = state.mobsToRespawn.partition(_._1.isBefore(state.serverTime))
@@ -222,7 +258,7 @@ class GameLogic(
       val event = mob.toEvent(dt = 0)
       state.players.values
         .filter(_.mapId == mob.mapId)
-        .foreach(_.queue.offer(MobsAppeared(Seq(event))))
+        .foreach(_.queue.offer(EntitiesAppeared(Seq(event))))
     }
     state.copy(
       mobsToRespawn = remaining,
@@ -258,7 +294,8 @@ class GameLogic(
       direction = Direction.none,
       lookDirection = LookDirection.down,
       hitPoints = template.maxHitPoints,
-      lastBroadcastTick = 0
+      lastBroadcastTick = 0,
+      lastAttackTick = 0
     )
   }
 

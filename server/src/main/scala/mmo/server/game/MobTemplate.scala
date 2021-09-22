@@ -5,5 +5,6 @@ import mmo.common.api.EntityAppearance
 final case class MobTemplate(
   name: String,
   appearance: EntityAppearance,
-  maxHitPoints: Int
+  maxHitPoints: Int,
+  attackCooldownTicks: Long
 )
