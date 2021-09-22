@@ -156,8 +156,9 @@ class Game(
         check(inputDirection)
           .orElse(inputDirection.linearComponents.map(check).collectFirst { case Some(x) => x })
           .getOrElse(self.position -> Direction.none)
+      val newLookDirection = if (newDirection.isMoving) newDirection.lookDirection else self.lookDirection
 
-      val newSelf = self.copy(position = newPosition, direction = newDirection, lookDirection = newDirection.lookDirection)
+      val newSelf = self.copy(position = newPosition, direction = newDirection, lookDirection = newLookDirection)
       val hasDirectionChanged = newDirection != selfLastSentDirection
       val hasMovedLongEnough = (newPosition - selfLastSentPosition).lengthSq >= 1.0
       if (hasDirectionChanged || hasMovedLongEnough) {
