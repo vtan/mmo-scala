@@ -39,6 +39,7 @@ class Game(
 
   private var movementKeyBits: Int = 0
   private var selfLastSentPosition: V2[Double] = V2.zero
+  private var selfLastSentDirection: Direction = Direction.none
 
   private var lastPingSent: Double = 0.0
   private var lastPingRtt: String = ""
@@ -72,12 +73,12 @@ class Game(
       case _ => true
     }
     entityStates.mapValuesInPlace { (entityId, entity) =>
-      if (entity.direction.isMoving && entity.dyingAnimationStarted.isEmpty) {
-        if (entityId == playerId) {
-          updateSelfMovement(self = entity, dt = dt)
-        } else {
-          updateOtherMovement(entity = entity, now = now)
-        }
+      if (entity.dyingAnimationStarted.nonEmpty) {
+        entity
+      } else if (entityId == playerId) {
+        updateSelfMovement(self = entity, dt = dt)
+      } else if (entity.direction.isMoving) {
+        updateOtherMovement(entity = entity, now = now)
       } else {
         entity
       }
@@ -103,9 +104,7 @@ class Game(
       lastPingRtt = s"RTT: ${eventReceiver.lastPingNanos.get() / 1_000_000L} ms"
     }
 
-  private def handleEvents(events: List[GlfwEvent], mousePosition: V2[Double], now: Double): Unit = {
-    val oldMovementKeyBits = movementKeyBits
-
+  private def handleEvents(events: List[GlfwEvent], mousePosition: V2[Double], now: Double): Unit =
     events.foreach {
       case KeyboardEvent(MovementKeyBits.Bit(bit), KeyboardEvent.Press) =>
         movementKeyBits |= bit
@@ -136,32 +135,35 @@ class Game(
       case _ => ()
     }
 
-    if (movementKeyBits != oldMovementKeyBits) {
-      val newDirection = MovementKeyBits.directions(movementKeyBits)
-      val _ = entityStates.updateWith(playerId)(_.map { state =>
-        val lookDirection = if (newDirection.isMoving) {
-          newDirection.lookDirection
-        } else {
-          state.lookDirection
-        }
-        sendSelfMovement(state.copy(direction = newDirection, lookDirection = lookDirection))
-      })
-    }
-  }
-
   private def updateSelfMovement(self: EntityState, dt: Double): EntityState = {
-    val normal = self.direction.vector
-    val positionChange = (dt * Constants.playerTilePerSecond) *: normal
-    val newPosition = self.position + positionChange
-    val hitbox = Constants.playerHitbox.translate(newPosition)
-    if (gameMap.doesRectCollide(hitbox)) {
-      sendSelfMovement(self.copy(direction = Direction.none))
+    val inputDirection = MovementKeyBits.directions(movementKeyBits)
+    if (!inputDirection.isMoving && inputDirection == selfLastSentDirection) {
+      self
     } else {
-      val updated = self.copy(position = newPosition)
-      if ((newPosition - selfLastSentPosition).lengthSq >= 1.0) {
-        sendSelfMovement(updated)
+      val distance = dt * Constants.playerTilePerSecond
+
+      def check(direction: Direction) = {
+        val positionChange = distance *: direction.vector
+        val newPosition = self.position + positionChange
+        if (gameMap.doesRectCollide(Constants.playerHitbox.translate(newPosition))) {
+          None
+        } else {
+          Some(newPosition -> direction)
+        }
+      }
+
+      val (newPosition, newDirection) =
+        check(inputDirection)
+          .orElse(inputDirection.linearComponents.map(check).collectFirst { case Some(x) => x })
+          .getOrElse(self.position -> Direction.none)
+
+      val newSelf = self.copy(position = newPosition, direction = newDirection, lookDirection = newDirection.lookDirection)
+      val hasDirectionChanged = newDirection != selfLastSentDirection
+      val hasMovedLongEnough = (newPosition - selfLastSentPosition).lengthSq >= 1.0
+      if (hasDirectionChanged || hasMovedLongEnough) {
+        sendSelfMovement(newSelf)
       } else {
-        updated
+        newSelf
       }
     }
   }
@@ -169,6 +171,7 @@ class Game(
   private def sendSelfMovement(self: EntityState): EntityState = {
     commandSender.offer(PlayerCommand.Move(self.position, self.direction, self.lookDirection))
     this.selfLastSentPosition = self.position
+    this.selfLastSentDirection = self.direction
     self
   }
 
