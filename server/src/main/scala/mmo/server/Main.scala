@@ -11,13 +11,11 @@ import akka.actor.ActorSystem
 import akka.io.Tcp.SO.TcpNoDelay
 import akka.stream.scaladsl.{Keep, Source, Tcp}
 import akka.stream.scaladsl.Tcp.{IncomingConnection, ServerBinding}
-import akka.Done
 import com.sksamuel.avro4s.AvroOutputStream
 import java.io.ByteArrayOutputStream
 import java.nio.file.{Files, Path}
 import org.slf4j.LoggerFactory
 import scala.concurrent.{ExecutionContext, Future}
-import scala.util.{Failure, Success}
 
 object Main {
 
@@ -76,12 +74,9 @@ object Main {
       Tcp().bind(host, port, options = List(TcpNoDelay(on = true)))
 
     connections.runForeach { connection =>
-      val ip = connection.remoteAddress
-      log.info(s"$ip connected")
       val flow = SessionFlow.create(gameActorRef).watchTermination()(Keep.right)
-      connection.handleWith(flow).onComplete {
-        case Success(Done) => log.info(s"$ip disconnected")
-        case Failure(ex) => log.warn(s"$ip connection failed", ex)
+      connection.handleWith(flow).onComplete { _ =>
+        // TODO: add metrics
       }
     }
 

@@ -2,13 +2,21 @@ package mmo.common.api
 
 import mmo.common.linear.V2
 
-import scala.util.Random
+import scala.collection.immutable.ArraySeq
 
 final case class Direction(asInt: Int) extends AnyVal {
 
-  def vector: V2[Double] = Direction.vectors(asInt)
-  def lookDirection: LookDirection = Direction.lookDirections(asInt)
-  def inverse: Direction = Direction.inverses(asInt)
+  def vector: V2[Double] =
+    Direction.vectors(asInt)
+
+  def lookDirection: LookDirection =
+    Direction.lookDirections(asInt)
+
+  def inverse: Direction =
+    Direction.inverses(asInt)
+
+  def linearComponents: Seq[Direction] =
+    Direction.linearComponents(asInt)
 
   def isMoving: Boolean = asInt != 0
 }
@@ -25,8 +33,6 @@ object Direction {
   val rightUp = Direction(8)
 
   val allMoving: Seq[Direction] = (1 to 8).map(Direction(_))
-
-  def random(implicit rnd: Random): Direction = Direction(1 + rnd.nextInt(8))
 
   private val vectors: Array[V2[Double]] = Array(
     V2(0, 0),
@@ -65,5 +71,17 @@ object Direction {
     Direction.rightUp,
     Direction.rightDown,
     Direction.leftDown
+  )
+
+  private val linearComponents: Array[ArraySeq[Direction]] = Array(
+    ArraySeq.empty,
+    ArraySeq.empty,
+    ArraySeq.empty,
+    ArraySeq.empty,
+    ArraySeq.empty,
+    ArraySeq(Direction.right, Direction.down),
+    ArraySeq(Direction.left, Direction.down),
+    ArraySeq(Direction.left, Direction.up),
+    ArraySeq(Direction.right, Direction.up)
   )
 }

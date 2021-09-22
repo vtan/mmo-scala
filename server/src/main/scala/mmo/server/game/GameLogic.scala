@@ -176,8 +176,8 @@ class GameLogic(
 
   private def moveMob(map: GameMap)(mob: Mob): Mob = {
 
-    def nextPositionAlong(direction: Direction, dt: Double): V2[Double] =
-      mob.position + (dt * Constants.mobTilePerSecond / ticksPerSecond) *: direction.vector
+    def nextPositionAlong(position: V2[Double], direction: Direction, dt: Double) : V2[Double] =
+      position + (dt * Constants.mobTilePerSecond / ticksPerSecond) *: direction.vector
 
     def isIllegal(position: V2[Double]): Boolean = {
       val wouldCollide = map.doesRectCollide(mob.template.appearance.collisionBox.translate(position))
@@ -185,36 +185,41 @@ class GameLogic(
       wouldCollide || wouldBeFarFromSpawn
     }
 
-    val nextPosition = nextPositionAlong(mob.direction, dt = 1)
+    def respawned: Mob = mob.copy(position = mob.spawn.position, direction = Direction.none)
+
+    def withRandomLegalDirection(position: V2[Double]): Mob = {
+      val candidates = Direction.allMoving.filter { dir =>
+        !isIllegal(nextPositionAlong(position, dir, dt = 1)) &&
+          !isIllegal(nextPositionAlong(position, dir, dt = 3))
+      }
+      random.shuffle(candidates).headOption.fold(respawned) { direction =>
+        mob.copy(position = position, direction = direction)
+      }
+    }
+
+    // The client is already extrapolating the mob towards the next position,
+    // so the next position should have already been set to a legal one at the previous tick.
+    // Therefore we check if the position two ticks later is valid
+    // and go ahead with the next position according to the current direction.
+    val nextPosition = nextPositionAlong(mob.position, mob.direction, dt = 1)
+    val nextPosition2 = nextPositionAlong(mob.position, mob.direction, dt = 2)
 
     if (isIllegal(nextPosition)) {
-      val candidates = Direction.allMoving.collect(Function.unlift { dir =>
-        val pos = nextPositionAlong(dir, dt = 1)
-        if (!isIllegal(pos) && !isIllegal(nextPositionAlong(dir, dt = 5))) {
-          Some(dir -> pos)
-        } else {
-          None
-        }
-      })
-      random.shuffle(candidates) match {
-        case (direction, position) +: _ =>
-          mob.copy(direction = direction, position = position)
-        case _ =>
-          mob.copy(direction = mob.direction.inverse)
-      }
-    } else if (!mob.direction.isMoving || random.nextDouble() < 0.01) {
-      val newDirection = Direction.random
-      mob.copy(position = nextPosition, direction = newDirection)
+      // This branch should rarely/never happen
+      respawned
+    } else if (isIllegal(nextPosition2) || !mob.direction.isMoving || random.nextDouble() < 0.01) {
+      withRandomLegalDirection(nextPosition)
     } else {
       mob.copy(position = nextPosition)
     }
   }
 
   private def respawnMobs(state: GameState): GameState = {
+    // TODO: measure respawn time in ticks
     val (mobsToRespawn, remaining) = state.mobsToRespawn.partition(_._1.isBefore(state.serverTime))
     val newMobs = mobsToRespawn.map(_._2).map(spawnMob)
     newMobs.foreach { mob =>
-      val event = mob.toEvent
+      val event = mob.toEvent(dt = 0)
       state.players.values
         .filter(_.mapId == mob.mapId)
         .foreach(_.queue.offer(MobsAppeared(Seq(event))))
