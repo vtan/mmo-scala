@@ -2,8 +2,11 @@ package mmo.common.api
 
 import mmo.common.linear.{Rect, V2}
 
+import scala.collection.immutable.ArraySeq
+
 final case class EntityAppearance(
-  spriteOffset: Int,
+  height: Int,
+  spriteOffsets: SpriteOffsets,
   spriteBoundary: Rect[Double],
   collisionBox: Rect[Double]
 ) {
@@ -11,8 +14,14 @@ final case class EntityAppearance(
   val collisionCenter: V2[Double] = collisionBox.center
 }
 
-object EntityAppearance {
+final case class SpriteOffsets(
+  right: Int,
+  down: Int,
+  left: Int,
+  up: Int
+) {
+  private lazy val movementOffsets: ArraySeq[Int] = ArraySeq(right, down, left, up)
 
-  // TODO: temporary until we use EntityAppearance for players too
-  val empty = EntityAppearance(0, Rect(0, 0, 0, 0), Rect(0, 0, 0, 0))
+  def movement(lookDirection: LookDirection): Int =
+    movementOffsets(lookDirection.asInt)
 }

@@ -2,13 +2,13 @@ package mmo.common.api
 
 import mmo.common.linear.V2
 
-final case class LookDirection(spriteIndex: Int) extends AnyVal
+final case class LookDirection(asInt: Int) extends AnyVal
 
 object LookDirection {
-  val down = LookDirection(0)
+  val right = LookDirection(0)
+  val down = LookDirection(1)
+  val left = LookDirection(2)
   val up = LookDirection(3)
-  val right = LookDirection(6)
-  val left = LookDirection(9)
 
   def fromVector(v: V2[Double]): LookDirection =
     if (v.x > v.y) {

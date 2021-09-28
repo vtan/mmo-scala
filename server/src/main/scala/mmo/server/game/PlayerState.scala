@@ -16,15 +16,16 @@ final case class PlayerState(
   maxHitPoints: Int,
   queue: SourceQueueWithComplete[PlayerEvent],
   receivedAtNano: ServerTime,
-  attackStartedAt: ServerTime
+  attackStartedAt: ServerTime,
+  appearance: EntityAppearance
 ) {
 
-  def collisionBoxCenter: V2[Double] = position + Constants.playerHitboxCenter
+  def collisionBoxCenter: V2[Double] = position + appearance.collisionCenter
 
   def toAppearEvent: EntityAppeared =
     EntityAppeared(
       id = id,
-      appearance = EntityAppearance.empty,
+      appearance = appearance,
       maxHitPoints = Constants.playerMaxHitPoints,
       hitPoints = hitPoints,
       position = position,

@@ -1,6 +1,6 @@
 package mmo.client.game
 
-import mmo.common.api.{Constants, Direction, EntityPositionsChanged, LookDirection, EntityAppeared, MobId, PlayerId}
+import mmo.common.api.{Constants, Direction, EntityAppearance, EntityAppeared, EntityPositionsChanged, LookDirection, MobId, PlayerId}
 import mmo.common.linear.V2
 
 final case class EntityState(
@@ -16,7 +16,8 @@ final case class EntityState(
   attackAnimationStarted: Double,
   dyingAnimationStarted: Option[Double],
   maxHitPoints: Int,
-  hitPoints: Int
+  hitPoints: Int,
+  appearance: EntityAppearance
 ) {
 
   def applyPositionChange(update: EntityPositionsChanged.Entry, now: Double, calculateInterpolation: Boolean): EntityState =
@@ -40,9 +41,10 @@ final case class EntityState(
       }
     )
 
-  def spriteOffsetAt(time: Double): Int =
+  def spriteOffsetAt(time: Double): Int = {
+    val offsetBase = appearance.spriteOffsets.movement(lookDirection)
     if (dyingAnimationStarted.isDefined) {
-      lookDirection.spriteIndex
+      offsetBase
     } else if (time < attackAnimationStarted + Constants.playerAttackLength) {
       val t = (time - attackAnimationStarted) / Constants.playerAttackLength
       val offset = (t * 5).toInt match {
@@ -52,7 +54,7 @@ final case class EntityState(
         case 3 => 1
         case _ => 0
       }
-      lookDirection.spriteIndex + offset
+      offsetBase + offset
     } else if (direction.isMoving) {
       val offset = (((time - directionLastChangedAt) / 0.15f) % 4).toInt match {
         case 0 => 1
@@ -60,10 +62,11 @@ final case class EntityState(
         case 2 => 2
         case 3 => 0
       }
-      lookDirection.spriteIndex + offset
+      offsetBase + offset
     } else {
-      lookDirection.spriteIndex
+      offsetBase
     }
+  }
 
   def isInterpolatingAt(t: Double): Boolean =
     t - lastServerEventAt <= EntityState.interpolationPeriod
@@ -73,26 +76,6 @@ object EntityState {
   val interpolationPeriod = 0.1
   val dyingAnimationPeriod = 0.15
   val dyingAnimationLength = 8 * dyingAnimationPeriod
-
-  def newAt(update: EntityPositionsChanged.Entry, now: Double): EntityState =
-    EntityState(
-      position = update.position,
-      lastPositionFromServer = update.position,
-      interpolationSource = update.position,
-      interpolationTarget = update.position,
-      direction = update.direction,
-      speedTilePerSecond = update.entityId match {
-        case _: PlayerId => Constants.playerTilePerSecond
-        case _: MobId => Constants.mobTilePerSecond
-      },
-      lookDirection = update.lookDirection,
-      directionLastChangedAt = now,
-      lastServerEventAt = now,
-      attackAnimationStarted = Double.NegativeInfinity,
-      dyingAnimationStarted = None,
-      maxHitPoints = 1,
-      hitPoints = 0
-    )
 
   def newAt(event: EntityAppeared, now: Double): EntityState =
     EntityState(
@@ -111,6 +94,7 @@ object EntityState {
       attackAnimationStarted = Double.NegativeInfinity,
       dyingAnimationStarted = None,
       maxHitPoints = event.maxHitPoints,
-      hitPoints = event.hitPoints
+      hitPoints = event.hitPoints,
+      appearance = event.appearance
     )
 }

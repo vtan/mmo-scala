@@ -45,7 +45,6 @@ class Game(
   private var lastPingRtt: String = ""
 
   private val entityStates = mutable.Map.empty[EntityId, EntityState]
-  private val mobAppearances = mutable.Map.empty[MobId, EntityAppearance]
   private var camera = Camera.centerOn(entityStates.get(playerId).fold(V2.zero)(_.position), gameMap.size, windowGeometry)
   private val damageLabels = mutable.ArrayBuffer.empty[DamageLabel]
 
@@ -67,9 +66,7 @@ class Game(
     val positionBeforeUpdate = (gameMap.size, entityStates.get(playerId).map(_.position))
 
     entityStates.filterInPlace {
-      case (id: MobId, entity) if entity.dyingAnimationStarted.exists(_ + EntityState.dyingAnimationLength <= now) =>
-        mobAppearances -= id
-        false
+      case (_: MobId, entity) if entity.dyingAnimationStarted.exists(_ + EntityState.dyingAnimationLength <= now) => false
       case _ => true
     }
     entityStates.mapValuesInPlace { (entityId, entity) =>
@@ -119,7 +116,7 @@ class Game(
         entityStates.updateWith(playerId)(_.map { player =>
           if (player.attackAnimationStarted + Constants.playerAttackLength < now) {
             val target = camera.screenToPoint(mousePosition)
-            val clickDirection = target - (player.position + Constants.playerHitbox.xy)
+            val clickDirection = target - (player.position + player.appearance.collisionBox.xy)
             val lookDirection = LookDirection.fromVector(clickDirection)
             sendSelfMovement(player)
             commandSender.offer(PlayerCommand.Attack(target))
@@ -145,7 +142,7 @@ class Game(
       def check(direction: Direction) = {
         val positionChange = distance *: direction.vector
         val newPosition = self.position + positionChange
-        if (gameMap.doesRectCollide(Constants.playerHitbox.translate(newPosition))) {
+        if (gameMap.doesRectCollide(self.appearance.collisionBox.translate(newPosition))) {
           None
         } else {
           Some(newPosition -> direction)
@@ -194,15 +191,10 @@ class Game(
     event match {
       case EntityPositionsChanged(positions) =>
         positions.foreach { update =>
-          entityStates.updateWith(update.entityId) {
-            case Some(old) =>
-              val calculateInterpolation = update.entityId != playerId
-              Some(old.applyPositionChange(update, now, calculateInterpolation))
-            case None =>
-              // TODO remove
-              println("This should not happen anymore")
-              Some(EntityState.newAt(update, now))
-          }
+          entityStates.updateWith(update.entityId)(_.map { old =>
+            val calculateInterpolation = update.entityId != playerId
+            old.applyPositionChange(update, now, calculateInterpolation)
+          })
         }
 
       case EntityAttacked(id) =>
@@ -220,7 +212,6 @@ class Game(
         gameMap = compactGameMap.toGameMap
         // Player positions (including ours) on the new map will follow in another event
         entityStates.clear()
-        mobAppearances.clear()
 
       case OtherPlayerDisappeared(id) =>
         entityStates -= id
@@ -235,10 +226,6 @@ class Game(
       case EntitiesAppeared(entities) =>
         entities.foreach { entity =>
           entityStates(entity.id) = EntityState.newAt(entity, now)
-          entity.id match {
-            case mobId: MobId => mobAppearances(mobId) = entity.appearance
-            case _: PlayerId => ()
-          }
         }
 
       case MobDied(id) =>
@@ -331,21 +318,17 @@ class Game(
     entities.sortInPlaceBy(_._2.position.y)
     entities.foreach {
       case (_, entity) if isHiddenDying(entity) => ()
-      case (entityId, entity) =>
-        val (entityRect, spriteIndex) = entityId match {
-          case PlayerId(_) =>
-            val sizeInTiles = V2(1, 2)
-            val rect = Rect(xy = entity.position - V2(0.0, 1.0), wh = sizeInTiles.map(_.toDouble))
-            val baseIndex = 0
-            (rect, baseIndex + entity.spriteOffsetAt(now))
-          case mobId: MobId =>
-            (Rect(xy = entity.position, V2(1.0, 1.0)), mobAppearances(mobId).spriteOffset)
-        }
+      case (_, entity) =>
+        val sizeInTiles = V2(1, entity.appearance.height)
+        val entityRect = Rect(
+          xy = entity.position - V2(0.0, entity.appearance.height.toDouble - 1.0),
+          wh = sizeInTiles.map(_.toDouble)
+        )
         camera.transformVisibleRect(entityRect).foreach { screenRect =>
           charAtlas.render(
             nvg,
             rectOnScreen = screenRect,
-            tileIndex = spriteIndex,
+            tileIndex = entity.spriteOffsetAt(now),
             scaleFactor = windowGeometry.scaleFactor
           )
         }
@@ -378,12 +361,11 @@ class Game(
       case (id, entity) =>
         val boxes = id match {
           case _: PlayerId =>
-            List(Constants.playerHitbox.translate(entity.lastPositionFromServer))
-          case mobId: MobId =>
-            val appearance = mobAppearances(mobId)
+            List(entity.appearance.collisionBox.translate(entity.lastPositionFromServer))
+          case _: MobId =>
             List(
-              appearance.spriteBoundary.translate(entity.lastPositionFromServer),
-              appearance.collisionBox.translate(entity.lastPositionFromServer)
+              entity.appearance.spriteBoundary.translate(entity.lastPositionFromServer),
+              entity.appearance.collisionBox.translate(entity.lastPositionFromServer)
             )
         }
         boxes.foreach { box =>

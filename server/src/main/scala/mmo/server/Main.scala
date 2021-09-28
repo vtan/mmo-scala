@@ -1,6 +1,6 @@
 package mmo.server
 
-import mmo.common.api.{CompactGameMap, EntityAppearance, Id}
+import mmo.common.api.{CompactGameMap, EntityAppearance, Id, SpriteOffsets}
 import mmo.common.linear.Rect
 import mmo.server.game.{MobTemplate, ServerGameMap}
 import mmo.server.server.{GameActor, SessionFlow}
@@ -43,7 +43,8 @@ object Main {
       MobTemplate(
         name = "green-slime",
         appearance = EntityAppearance(
-          spriteOffset = 64,
+          height = 1,
+          spriteOffsets = SpriteOffsets(64, 64, 64, 64),
           spriteBoundary = Rect(0, 3.0 / 16, 1, 1 - 3.0 / 16),
           collisionBox = Rect(0.02, 0.75, 1 - 0.04, 0.25)
         ),
@@ -53,7 +54,8 @@ object Main {
       MobTemplate(
         name = "blue-slime",
         appearance = EntityAppearance(
-          spriteOffset = 65,
+          height = 1,
+          spriteOffsets = SpriteOffsets(80, 80, 80, 80),
           spriteBoundary = Rect(0, 3.0 / 16, 1, 1 - 3.0 / 16),
           collisionBox = Rect(0.02, 0.75, 1 - 0.04, 0.25)
         ),

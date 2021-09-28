@@ -38,7 +38,7 @@ class GameLogic(
   def playerConnected(playerId: PlayerId, queue: SourceQueueWithComplete[PlayerEvent])(state: GameState): GameState = {
     val name = UUID.randomUUID().toString.take(6).toUpperCase
     val (mapId, map) = maps.minBy(_._1.asLong)
-    val player = PlayerState(playerId, name, mapId, V2(2, 1), Direction.none, LookDirection.down, Constants.playerMaxHitPoints, Constants.playerMaxHitPoints, queue, ServerTime.now, ServerTime.now)
+    val player = PlayerState(playerId, name, mapId, V2(2, 1), Direction.none, LookDirection.down, Constants.playerMaxHitPoints, Constants.playerMaxHitPoints, queue, ServerTime.now, ServerTime.now, ServerConstants.playerAppearance)
 
     val newState = state.updatePlayer(player.id, player)
     val playerNames = newState.players.map { case (id, player) => id -> player.name }.toSeq
@@ -62,7 +62,7 @@ class GameLogic(
           existing.position + timeElapsed *: existing.direction.vector
         }
         val map = maps(existing.mapId)
-        val movedToObstacle = map.gameMap.doesRectCollide(Constants.playerHitbox.translate(requested.position))
+        val movedToObstacle = map.gameMap.doesRectCollide(ServerConstants.playerCollisionBox.translate(requested.position))
         val movedFarFromLastPosition = (requested.position - existing.position).lengthSq >= positionConstraints.maxAllowedDistanceSqFromLast
         val movedFarFromPredicted = (predictedPosition - requested.position).lengthSq >= positionConstraints.maxAllowedDistanceSqFromPredicted
         val invalid = movedToObstacle || movedFarFromLastPosition || movedFarFromPredicted
@@ -160,7 +160,7 @@ class GameLogic(
   private def updateMobsOnMap(map: ServerGameMap, mobsOnMap: Iterable[Mob])(state: GameState): GameState = {
     val players = state.players.values.filter(_.mapId == map.id)
 
-    val (movedMobs, shouldBroadcast, attacks) = mobsOnMap.map { mob =>
+    val (movedMobs, shouldBroadcast, attackOpts) = mobsOnMap.map { mob =>
       val attack = if (state.tick >= mob.lastAttackTick + mob.template.attackCooldownTicks) {
         attackWithMob(mob, players)
       } else {
@@ -173,9 +173,12 @@ class GameLogic(
       (attacked, changedDirection || enoughTicksPassed, attack)
     }.unzip3
 
+    val attacks = attackOpts.collect { case Some(x) => x }
+
+    val attackEvents = attacks.map { case (mobId, _, _) => EntityAttacked(mobId) }
+
     val (damagedPlayers, damageEvents) = attacks
-      .collect { case Some(x) => x }
-      .groupMapReduce(_._1)(_._2)(_ + _)
+      .groupMapReduce(_._2)(_._3)(_ + _)
       .map {
         case (playerId, damage) =>
           val player = state.players(playerId)
@@ -196,7 +199,7 @@ class GameLogic(
     }
 
     // TODO merge them into one event
-    (movementEvents ++ damageEvents).foreach { event =>
+    (movementEvents ++ attackEvents ++ damageEvents).foreach { event =>
       Broadcast.toMap(event, map.id)(state.players.values)
     }
 
@@ -243,11 +246,11 @@ class GameLogic(
     }
   }
 
-  private def attackWithMob(mob: Mob, players: Iterable[PlayerState]): Option[(PlayerId, Int)] = {
+  private def attackWithMob(mob: Mob, players: Iterable[PlayerState]): Option[(MobId, PlayerId, Int)] = {
     val candidates = players.filter { player =>
       (player.collisionBoxCenter - mob.collisionBoxCenter).lengthSq <= mobAttackRangeSq
     }
-    random.shuffle(candidates).headOption.map(_.id -> 1)
+    random.shuffle(candidates).headOption.map(player => (mob.id, player.id, 1))
   }
 
   private def respawnMobs(state: GameState): GameState = {
@@ -271,8 +274,8 @@ class GameLogic(
     newPosition: V2[Double],
     teleports: Seq[ServerGameMap.Teleport]
   ): Option[(ServerGameMap.Teleport, ServerGameMap)] = {
-    val oldHitboxCenter = oldPosition + Constants.playerHitboxCenter
-    val newHitboxCenter = newPosition + Constants.playerHitboxCenter
+    val oldHitboxCenter = oldPosition + ServerConstants.playerCollisionBoxCenter
+    val newHitboxCenter = newPosition + ServerConstants.playerCollisionBoxCenter
     for {
       teleport <- teleports.find(tp => tp.rect.contains(newHitboxCenter) && !tp.rect.contains(oldHitboxCenter))
       mapId <- mapNames.get(teleport.targetMapName)
@@ -308,7 +311,7 @@ class GameLogic(
       }
       .filter { mob =>
         val collisionCenter = mob.position + mob.template.appearance.collisionCenter
-        val playerCenter = player.position + Constants.playerHitboxCenter
+        val playerCenter = player.position + ServerConstants.playerCollisionBoxCenter
         val attack = collisionCenter - playerCenter
         attack.lengthSq < Constants.playerAttackRangeSq
       }
