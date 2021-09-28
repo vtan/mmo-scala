@@ -1,0 +1,46 @@
+[
+  {
+    "name": "green-slime",
+    "appearance": {
+      "height": 1,
+      "spriteOffsets": {
+        "right": 64,
+        "down": 64,
+        "left": 64,
+        "up": 64
+      },
+      "spriteBoundary": [
+        [ 0, 0.1875 ],
+        [ 1, 0.8125 ]
+      ],
+      "collisionBox": [
+        [ 0.02, 0.75 ],
+        [ 0.96, 0.25 ]
+      ]
+    },
+    "maxHitPoints": 6,
+    "attackCooldownTicks": 10
+  },
+  {
+    "name": "blue-slime",
+    "appearance": {
+      "height": 1,
+      "spriteOffsets": {
+        "right": 80,
+        "down": 80,
+        "left": 80,
+        "up": 80
+      },
+      "spriteBoundary": [
+        [ 0, 0.1875 ],
+        [ 1, 0.8125 ]
+      ],
+      "collisionBox": [
+        [ 0.02, 0.75 ],
+        [ 0.96, 0.25 ]
+      ]
+    },
+    "maxHitPoints": 10,
+    "attackCooldownTicks": 8
+  }
+]

@@ -1,8 +1,8 @@
 package mmo.server
 
-import mmo.common.api.{CompactGameMap, EntityAppearance, Id, SpriteOffsets}
-import mmo.common.linear.Rect
+import mmo.common.api.{CompactGameMap, Id}
 import mmo.server.game.{MobTemplate, ServerGameMap}
+import mmo.server.game.CommonJsonDecoders._
 import mmo.server.server.{GameActor, SessionFlow}
 import mmo.server.tiled.{TiledMap, Tileset}
 
@@ -12,6 +12,7 @@ import akka.io.Tcp.SO.TcpNoDelay
 import akka.stream.scaladsl.{Keep, Source, Tcp}
 import akka.stream.scaladsl.Tcp.{IncomingConnection, ServerBinding}
 import com.sksamuel.avro4s.AvroOutputStream
+import io.circe.generic.auto._
 import java.io.ByteArrayOutputStream
 import java.nio.file.{Files, Path}
 import org.slf4j.LoggerFactory
@@ -38,31 +39,12 @@ object Main {
     }.unzip
     val maps = mapEntries.toMap
     val mapNames = mapNameEntries.toMap
-    // TODO: read from json
-    val mobTemplates = Seq(
-      MobTemplate(
-        name = "green-slime",
-        appearance = EntityAppearance(
-          height = 1,
-          spriteOffsets = SpriteOffsets(64, 64, 64, 64),
-          spriteBoundary = Rect(0, 3.0 / 16, 1, 1 - 3.0 / 16),
-          collisionBox = Rect(0.02, 0.75, 1 - 0.04, 0.25)
-        ),
-        maxHitPoints = 6,
-        attackCooldownTicks = 10
-      ),
-      MobTemplate(
-        name = "blue-slime",
-        appearance = EntityAppearance(
-          height = 1,
-          spriteOffsets = SpriteOffsets(80, 80, 80, 80),
-          spriteBoundary = Rect(0, 3.0 / 16, 1, 1 - 3.0 / 16),
-          collisionBox = Rect(0.02, 0.75, 1 - 0.04, 0.25)
-        ),
-        maxHitPoints = 10,
-        attackCooldownTicks = 8
-      )
-    ).map(t => t.name -> t).toMap
+
+    val mobTemplates = io.circe.parser.decode[Seq[MobTemplate]](
+      Files.readString(Path.of("data/mob-templates.json"))
+    )
+      .toTry.get
+      .map(t => t.name -> t).toMap
 
     val host = "0.0.0.0"
     val port = 10001
