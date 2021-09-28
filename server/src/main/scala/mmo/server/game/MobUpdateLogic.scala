@@ -13,6 +13,7 @@ class MobUpdateLogic(
 ) {
 
   private val mobAttackRangeSq = 1.0
+  private val maxDistanceFromSpawnSq = 6.0 * 6.0
 
   def updateMobs(state: GameState): GameState =
     state.mobs.values
@@ -24,19 +25,23 @@ class MobUpdateLogic(
       }
 
   private def updateMobsOnMap(map: ServerGameMap, mobsOnMap: Iterable[Mob])(state: GameState): GameState = {
-    val players = state.players.values.filter(_.mapId == map.id)
 
     val (movedMobs, shouldBroadcast, attackOpts) = mobsOnMap.map { mob =>
-      val attack = if (state.tick >= mob.lastAttackTick + mob.template.attackCooldownTicks) {
-        attackWithMob(mob, players)
-      } else {
-        None
-      }
-      val moved = moveMob(map.gameMap)(mob)
-      val attacked = if (attack.isDefined) moved.copy(lastAttackTick = state.tick) else moved
-      val changedDirection = mob.direction != attacked.direction
+      val attackTarget = mob.attackTarget.flatMap(state.players.get)
+      val attack = attackIfLegal(mob, attackTarget, state)
+      val newMob = Function.chain(Seq(
+        seekTarget(state),
+        moveMob(map.gameMap, attackTarget),
+        if (attack.isDefined) {
+          (m: Mob) => m.copy(lastAttackTick = state.tick)
+        } else {
+          identity[Mob]
+        }
+      ))(mob)
+
+      val changedDirection = mob.direction != newMob.direction
       val enoughTicksPassed = state.tick - mob.lastBroadcastTick >= Tick.largeTickFrequency
-      (attacked, changedDirection || enoughTicksPassed, attack)
+      (newMob, changedDirection || enoughTicksPassed, attack)
     }.unzip3
 
     val attacks = attackOpts.collect { case Some(x) => x }
@@ -72,18 +77,55 @@ class MobUpdateLogic(
     state.updateMobs(tickedMobs).updatePlayers(damagedPlayers)
   }
 
-  private def moveMob(map: GameMap)(mob: Mob): Mob = {
+  private def attackIfLegal(mob: Mob, attackTarget: Option[PlayerState], state: GameState): Option[(MobId, PlayerId, Int)] =
+    if (state.tick >= mob.lastAttackTick + mob.template.attackCooldownTicks) {
+      attackTarget.flatMap { target =>
+        val distanceSq = (target.collisionBoxCenter - mob.collisionBoxCenter).lengthSq
+        if (distanceSq <= mobAttackRangeSq) {
+          Some((mob.id, target.id, 1))
+        } else {
+          None
+        }
+      }
+    } else {
+      None
+    }
+
+  private def seekTarget(state: GameState)(mob: Mob): Mob = {
+    val candidates = state.players.values.collect(Function.unlift { player =>
+      val playerPosition = player.collisionBoxCenter
+      val playerDistanceSq = (playerPosition - mob.collisionBoxCenter).lengthSq
+      val isInAggroRadius = playerDistanceSq <= mob.template.aggroRadiusSq
+      val isNearEnoughSpawn = (playerPosition - mob.spawn.position).lengthSq <= maxDistanceFromSpawnSq
+      if (isInAggroRadius && isNearEnoughSpawn) {
+        Some(player -> playerDistanceSq)
+      } else {
+        None
+      }
+    })
+    mob.attackTarget match {
+      case Some(targetId) if candidates.exists(_._1.id == targetId) =>
+        mob
+      case _ =>
+        val nearestCandidate = candidates
+          .minByOption { case (_, playerDistanceSq) => playerDistanceSq }
+          .map(_._1)
+        mob.copy(attackTarget = nearestCandidate.map(_.id))
+    }
+  }
+
+  private def moveMob(map: GameMap, attackTarget: Option[PlayerState])(mob: Mob): Mob = {
 
     def nextPositionAlong(position: V2[Double], direction: Direction, dt: Double) : V2[Double] =
       position + (dt * Constants.mobTilePerSecond / Tick.ticksPerSecond) *: direction.vector
 
     def isIllegal(position: V2[Double]): Boolean = {
       val wouldCollide = map.doesRectCollide(mob.template.appearance.collisionBox.translate(position))
-      val wouldBeFarFromSpawn = (position - mob.spawn.position).lengthSq >= 6 * 6
+      val wouldBeFarFromSpawn = (position - mob.spawn.position).lengthSq >= maxDistanceFromSpawnSq
       wouldCollide || wouldBeFarFromSpawn
     }
 
-    def respawned: Mob = mob.copy(position = mob.spawn.position, direction = Direction.none)
+    def respawned: Mob = mob.copy(position = mob.spawn.position, direction = Direction.none, attackTarget = None)
 
     def withRandomLegalDirection(position: V2[Double]): Mob = {
       val candidates = Direction.allMoving.filter { dir =>
@@ -91,7 +133,7 @@ class MobUpdateLogic(
           !isIllegal(nextPositionAlong(position, dir, dt = 3))
       }
       random.shuffle(candidates).headOption.fold(respawned) { direction =>
-        mob.copy(position = position, direction = direction)
+        mob.copy(position = position, direction = direction, attackTarget = None)
       }
     }
 
@@ -105,17 +147,20 @@ class MobUpdateLogic(
     if (isIllegal(nextPosition)) {
       // This branch should rarely/never happen
       respawned
-    } else if (isIllegal(nextPosition2) || !mob.direction.isMoving || random.nextDouble() < 0.01) {
+    } else if (isIllegal(nextPosition2)) {
       withRandomLegalDirection(nextPosition)
     } else {
-      mob.copy(position = nextPosition)
+      val directionToTarget = attackTarget
+        .map { target => Direction.fromVector(target.collisionBoxCenter - mob.collisionBoxCenter) }
+        .filter { direction => !isIllegal(nextPositionAlong(nextPosition, direction, dt = 1)) }
+      directionToTarget match {
+        case Some(direction) =>
+          mob.copy(position = nextPosition, direction = direction)
+        case None if !mob.direction.isMoving || random.nextDouble() < 0.01 =>
+          withRandomLegalDirection(nextPosition)
+        case None =>
+          mob.copy(position = nextPosition)
+      }
     }
-  }
-
-  private def attackWithMob(mob: Mob, players: Iterable[PlayerState]): Option[(MobId, PlayerId, Int)] = {
-    val candidates = players.filter { player =>
-      (player.collisionBoxCenter - mob.collisionBoxCenter).lengthSq <= mobAttackRangeSq
-    }
-    random.shuffle(candidates).headOption.map(player => (mob.id, player.id, 1))
   }
 }

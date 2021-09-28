@@ -38,6 +38,7 @@ class MobSpawnLogic(
       lookDirection = LookDirection.down,
       hitPoints = template.maxHitPoints,
       lastBroadcastTick = 0,
+      attackTarget = None,
       lastAttackTick = 0
     )
   }

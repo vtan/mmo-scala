@@ -1,6 +1,6 @@
 package mmo.server.game
 
-import mmo.common.api.{Constants, Direction, EntityAppeared, EntityPositionsChanged, Id, LookDirection, MobId}
+import mmo.common.api.{Constants, Direction, EntityAppeared, EntityPositionsChanged, Id, LookDirection, MobId, PlayerId}
 import mmo.common.linear.V2
 import mmo.server.game.ServerGameMap.MobSpawn
 
@@ -14,6 +14,7 @@ final case class Mob(
   lookDirection: LookDirection,
   hitPoints: Int,
   lastBroadcastTick: Long,
+  attackTarget: Option[PlayerId],
   lastAttackTick: Long
 ) {
 

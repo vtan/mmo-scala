@@ -34,6 +34,22 @@ object Direction {
 
   val allMoving: Seq[Direction] = (1 to 8).map(Direction(_))
 
+  // TODO: map to diagonals too
+  def fromVector(v: V2[Double]): Direction =
+    if (v.x > v.y) {
+      if (v.x > -v.y) {
+        right
+      } else {
+        up
+      }
+    } else {
+      if (v.x > -v.y) {
+        down
+      } else {
+        left
+      }
+    }
+
   private val vectors: Array[V2[Double]] = Array(
     V2(0, 0),
     V2(1, 0),
