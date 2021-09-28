@@ -34,21 +34,6 @@ object Direction {
 
   val allMoving: Seq[Direction] = (1 to 8).map(Direction(_))
 
-  // TODO: map to diagonals too
-  def fromVector(v: V2[Double]): Direction =
-    if (v.x > v.y) {
-      if (v.x > -v.y) {
-        right
-      } else {
-        up
-      }
-    } else {
-      if (v.x > -v.y) {
-        down
-      } else {
-        left
-      }
-    }
 
   private val vectors: Array[V2[Double]] = Array(
     V2(0, 0),
@@ -100,4 +85,29 @@ object Direction {
     ArraySeq(Direction.left, Direction.up),
     ArraySeq(Direction.right, Direction.up)
   )
+
+  def fromVector(v: V2[Double]): Direction =
+    if (v.y > slope * v.x) {
+      if (v.y > -slope * v.x) {
+        down
+      } else if (v.y > -1/slope * v.x) {
+        leftDown
+      } else if (v.y > 1/slope * v.x) {
+        left
+      } else {
+        leftUp
+      }
+    } else {
+      if (v.y > 1/slope * v.x) {
+        rightDown
+      } else if (v.y > -1/slope * v.x) {
+        right
+      } else if (v.y > -slope * v.x) {
+        rightUp
+      } else {
+        up
+      }
+    }
+
+  private val slope: Double = Math.tan((45 + 22.5) / 180.0 * Math.PI)
 }
