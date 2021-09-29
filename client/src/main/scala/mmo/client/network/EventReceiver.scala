@@ -7,10 +7,14 @@ import java.io.{ByteArrayInputStream, InputStream}
 import java.nio.ByteBuffer
 import java.util.concurrent.{ArrayBlockingQueue, BlockingQueue}
 import java.util.concurrent.atomic.AtomicLong
+import scala.collection.mutable.ArrayBuffer
+
+final case class EventReceiverStats(count: Int, totalSize: Int)
 
 trait EventReceiver {
   def poll(): PlayerEvent
   val lastPingNanos: AtomicLong
+  def clearStats(): EventReceiverStats
 }
 
 private[network] class EventReceiverRunnable(
@@ -19,17 +23,28 @@ private[network] class EventReceiverRunnable(
 
   private val eventQueue: BlockingQueue[PlayerEvent] = new ArrayBlockingQueue[PlayerEvent](256)
   private val eventReader: EventReader = new EventReader
+  private val eventSizeBuffer = ArrayBuffer.empty[Int]
 
   override val lastPingNanos: AtomicLong = new AtomicLong(0L)
 
   override def poll(): PlayerEvent = eventQueue.poll()
 
+  override def clearStats(): EventReceiverStats = {
+    val stats = EventReceiverStats(eventSizeBuffer.size, eventSizeBuffer.sum)
+    eventSizeBuffer.clear()
+    stats
+  }
+
   override def run(): Unit =
     try {
       while (true) {
-        eventReader.read(inputStream) match {
+        val (event, size) = eventReader.read(inputStream)
+        event match {
           case Pong(clientTimeNanos) => lastPingNanos.set(System.nanoTime() - clientTimeNanos)
           case event => eventQueue.add(event)
+        }
+        if (eventSizeBuffer.size < 100) {
+          eventSizeBuffer += size
         }
       }
     } catch {
@@ -43,7 +58,7 @@ private class EventReader {
   private val payloadInputStream = new ByteArrayInputStream(payloadBuffer)
   private val avroInputStream = AvroInputStream.binary[PlayerEvent].from(payloadInputStream).build(PlayerEvent.avroSchema)
 
-  def read(inputStream: InputStream): PlayerEvent = {
+  def read(inputStream: InputStream): (PlayerEvent, Int) = {
     val size = ByteBuffer.wrap(inputStream.readNBytes(4)).getInt
     if (size > payloadBuffer.length) {
       throw new RuntimeException(s"Received too large command: $size bytes")
@@ -52,6 +67,6 @@ private class EventReader {
     val _ = inputStream.readNBytes(payloadBuffer, start, size)
     payloadInputStream.reset()
     payloadInputStream.skip(start.toLong)
-    avroInputStream.iterator.next()
+    avroInputStream.iterator.next() -> size
   }
 }

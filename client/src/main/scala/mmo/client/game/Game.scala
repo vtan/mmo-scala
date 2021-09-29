@@ -43,6 +43,8 @@ class Game(
 
   private var lastPingSent: Double = 0.0
   private var lastPingRtt: String = ""
+  private var lastEventStatsCollected: Double = 0.0
+  private var lastEventStats: String = ""
 
   private val entityStates = mutable.Map.empty[EntityId, EntityState]
   private var camera = Camera.centerOn(entityStates.get(playerId).fold(V2.zero)(_.position), gameMap.size, windowGeometry)
@@ -61,6 +63,7 @@ class Game(
 
   private def update(events: List[GlfwEvent], mousePosition: V2[Double], now: Double, dt: Double): Unit = {
     sendPing(now)
+    collectEventStats(now)
     handleEvents(events, mousePosition, now)
 
     val positionBeforeUpdate = (gameMap.size, entityStates.get(playerId).map(_.position))
@@ -99,6 +102,13 @@ class Game(
       commandSender.offer(PlayerCommand.Ping(System.nanoTime()))
       lastPingSent = now
       lastPingRtt = s"RTT: ${eventReceiver.lastPingNanos.get() / 1_000_000L} ms"
+    }
+
+  private def collectEventStats(now: Double): Unit =
+    if (now - lastEventStatsCollected >= 1.0) {
+      val stats = eventReceiver.clearStats()
+      lastEventStatsCollected = now
+      lastEventStats = s"evs/s: ${stats.count} (${stats.totalSize} B)"
     }
 
   private def handleEvents(events: List[GlfwEvent], mousePosition: V2[Double], now: Double): Unit =
@@ -284,9 +294,10 @@ class Game(
 
     nvgTextAlign(nvg, NVG_ALIGN_TOP | NVG_ALIGN_LEFT)
     renderText(nvg, 0, 0, lastPingRtt)
-    renderText(nvg, 0, 40, "Players:")
+    renderText(nvg, 0, 20, lastEventStats)
+    renderText(nvg, 0, 60, "Players:")
     playerNames.values.zipWithIndex.foreach {
-      case (name, i) => renderText(nvg, 0, (40 + (i + 1) * 20).toDouble, name)
+      case (name, i) => renderText(nvg, 0, (60 + (i + 1) * 20).toDouble, name)
     }
 
     nvgEndFrame(nvg)
