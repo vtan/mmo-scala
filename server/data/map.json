@@ -66,7 +66,7 @@
                         {
                          "name":"mobTemplate",
                          "type":"string",
-                         "value":"green-slime"
+                         "value":"yellow-slime"
                         }],
                  "rotation":0,
                  "type":"Mob Spawn",
@@ -162,23 +162,6 @@
                 }, 
                 {
                  "height":16,
-                 "id":10,
-                 "name":"",
-                 "properties":[
-                        {
-                         "name":"mobTemplate",
-                         "type":"string",
-                         "value":"green-slime"
-                        }],
-                 "rotation":0,
-                 "type":"Mob Spawn",
-                 "visible":true,
-                 "width":16,
-                 "x":224,
-                 "y":288
-                }, 
-                {
-                 "height":16,
                  "id":11,
                  "name":"",
                  "properties":[
@@ -210,6 +193,57 @@
                  "width":16,
                  "x":80,
                  "y":160
+                }, 
+                {
+                 "height":16,
+                 "id":13,
+                 "name":"",
+                 "properties":[
+                        {
+                         "name":"mobTemplate",
+                         "type":"string",
+                         "value":"green-slime"
+                        }],
+                 "rotation":0,
+                 "type":"Mob Spawn",
+                 "visible":true,
+                 "width":16,
+                 "x":288,
+                 "y":48
+                }, 
+                {
+                 "height":16,
+                 "id":14,
+                 "name":"",
+                 "properties":[
+                        {
+                         "name":"mobTemplate",
+                         "type":"string",
+                         "value":"green-slime"
+                        }],
+                 "rotation":0,
+                 "type":"Mob Spawn",
+                 "visible":true,
+                 "width":16,
+                 "x":192,
+                 "y":320
+                }, 
+                {
+                 "height":16,
+                 "id":15,
+                 "name":"",
+                 "properties":[
+                        {
+                         "name":"mobTemplate",
+                         "type":"string",
+                         "value":"yellow-slime"
+                        }],
+                 "rotation":0,
+                 "type":"Mob Spawn",
+                 "visible":true,
+                 "width":16,
+                 "x":192,
+                 "y":432
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -218,10 +252,10 @@
          "y":0
         }],
  "nextlayerid":4,
- "nextobjectid":13,
+ "nextobjectid":16,
  "orientation":"orthogonal",
  "renderorder":"right-down",
- "tiledversion":"1.7.1",
+ "tiledversion":"1.7.2",
  "tileheight":16,
  "tilesets":[
         {

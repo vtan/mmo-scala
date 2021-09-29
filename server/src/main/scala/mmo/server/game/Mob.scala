@@ -1,6 +1,6 @@
 package mmo.server.game
 
-import mmo.common.api.{Direction, EntityAppeared, EntityPositionsChanged, Id, LookDirection, MobId, PlayerId}
+import mmo.common.api.{Direction, EntityAppeared, EntityPositionsChanged, Id, MobId, PlayerId}
 import mmo.common.linear.V2
 import mmo.server.game.ServerGameMap.MobSpawn
 
@@ -11,7 +11,6 @@ final case class Mob(
   mapId: Id[ServerGameMap],
   position: V2[Double],
   direction: Direction,
-  lookDirection: LookDirection,
   nextPosition: V2[Double],
   hitPoints: Int,
   lastBroadcastTick: Long,
@@ -36,10 +35,10 @@ final case class Mob(
         position
       },
       direction = direction,
-      lookDirection = lookDirection,
+      lookDirection = direction.lookDirection,
       speed = speed
     )
 
   def toPositionChange: EntityPositionsChanged.Entry =
-    EntityPositionsChanged.Entry(id, position, direction, lookDirection, speed)
+    EntityPositionsChanged.Entry(id, position, direction, direction.lookDirection, speed)
 }

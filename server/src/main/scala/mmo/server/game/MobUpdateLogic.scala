@@ -161,7 +161,7 @@ class MobUpdateLogic(
           val nextPosition = nextPositionAlong(mob.nextPosition, direction, dt = 1)
           direction -> nextPosition
         }
-        .filter { case (_, next) => !isIllegal(next) }
+        .filter { case (dir, next) => !isIllegal(next) && !isIllegal(nextPositionAlong(mob.nextPosition, dir, dt = 5)) }
       directionToTarget match {
         case Some((direction, nextPosition)) =>
           mob.copy(position = mob.nextPosition, nextPosition = nextPosition, direction = direction)

@@ -1,6 +1,6 @@
 package mmo.server.game
 
-import mmo.common.api.{Direction, EntitiesAppeared, LookDirection, MobId}
+import mmo.common.api.{Direction, EntitiesAppeared, MobId}
 import mmo.server.game.ServerGameMap.MobSpawn
 
 class MobSpawnLogic(
@@ -35,7 +35,6 @@ class MobSpawnLogic(
       mapId = mobSpawn.mapId,
       position = mobSpawn.position,
       direction = Direction.none,
-      lookDirection = LookDirection.down,
       nextPosition = mobSpawn.position,
       hitPoints = template.maxHitPoints,
       lastBroadcastTick = 0,

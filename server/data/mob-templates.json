@@ -4,10 +4,10 @@
     "appearance": {
       "height": 1,
       "spriteOffsets": {
-        "right": 64,
         "down": 64,
-        "left": 64,
-        "up": 64
+        "up": 67,
+        "right": 70,
+        "left": 73
       },
       "spriteBoundary": [
         [ 0, 0.1875 ],
@@ -22,17 +22,42 @@
     "attackCooldownTicks": 10,
     "aggroRadius": 4,
     "idleSpeed": 0.7,
-    "aggroSpeed": 2.0
+    "aggroSpeed": 1.5
+  },
+  {
+    "name": "yellow-slime",
+    "appearance": {
+      "height": 1,
+      "spriteOffsets": {
+        "down": 80,
+        "up": 83,
+        "right": 86,
+        "left": 89
+      },
+      "spriteBoundary": [
+        [ 0, 0.1875 ],
+        [ 1, 0.8125 ]
+      ],
+      "collisionBox": [
+        [ 0.02, 0.75 ],
+        [ 0.96, 0.25 ]
+      ]
+    },
+    "maxHitPoints": 6,
+    "attackCooldownTicks": 10,
+    "aggroRadius": 4,
+    "idleSpeed": 0.9,
+    "aggroSpeed": 2.8
   },
   {
     "name": "blue-slime",
     "appearance": {
       "height": 1,
       "spriteOffsets": {
-        "right": 80,
-        "down": 80,
-        "left": 80,
-        "up": 80
+        "down": 96,
+        "up": 99,
+        "right": 102,
+        "left": 105
       },
       "spriteBoundary": [
         [ 0, 0.1875 ],
@@ -47,6 +72,6 @@
     "attackCooldownTicks": 8,
     "aggroRadius": 4,
     "idleSpeed": 0.7,
-    "aggroSpeed": 2.0
+    "aggroSpeed": 1.5
   }
 ]
