@@ -7,7 +7,9 @@ final case class MobTemplate(
   appearance: EntityAppearance,
   maxHitPoints: Int,
   attackCooldownTicks: Long,
-  aggroRadius: Double
+  aggroRadius: Double,
+  idleSpeed: Double,
+  aggroSpeed: Double
 ) {
   val aggroRadiusSq: Double = aggroRadius * aggroRadius
 }

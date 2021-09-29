@@ -3,6 +3,8 @@ package mmo.server.game
 import mmo.common.api.{MobId, PlayerId}
 import mmo.server.game.ServerGameMap.MobSpawn
 
+import java.util.concurrent.TimeUnit
+
 final case class GameState(
   serverTime: ServerTime,
   tick: Long,
@@ -11,7 +13,8 @@ final case class GameState(
   mobs: Map[MobId, Mob],
   mobsToRespawn: Vector[(ServerTime, MobSpawn)]
 ) {
-  lazy val secondsSinceLastTick: Double = (serverTime - lastTickAt).toSeconds
+  lazy val fractionOfTick: Double =
+    (serverTime - lastTickAt).toSeconds / Tick.tickPeriod.toUnit(TimeUnit.SECONDS)
 
   def updatePlayer(id: PlayerId, state: PlayerState): GameState =
     copy(players = players.updated(id, state))

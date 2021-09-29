@@ -137,7 +137,7 @@ class Game(
     if (!inputDirection.isMoving && inputDirection == selfLastSentDirection) {
       self
     } else {
-      val distance = dt * Constants.playerTilePerSecond
+      val distance = dt * self.speed
 
       def check(direction: Direction) = {
         val positionChange = distance *: direction.vector
@@ -181,7 +181,7 @@ class Game(
       val position = V2.lerp(t, entity.interpolationSource, entity.interpolationTarget)
       entity.copy(position = position)
     } else {
-      val extrapolatedMovement = ((now - entity.lastServerEventAt) * entity.speedTilePerSecond) *: entity.direction.vector
+      val extrapolatedMovement = ((now - entity.lastServerEventAt) * entity.speed) *: entity.direction.vector
       val position = entity.lastPositionFromServer + extrapolatedMovement
       entity.copy(position = position)
     }

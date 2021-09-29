@@ -20,7 +20,9 @@
     },
     "maxHitPoints": 6,
     "attackCooldownTicks": 10,
-    "aggroRadius": 4
+    "aggroRadius": 4,
+    "idleSpeed": 0.7,
+    "aggroSpeed": 2.0
   },
   {
     "name": "blue-slime",
@@ -43,6 +45,8 @@
     },
     "maxHitPoints": 10,
     "attackCooldownTicks": 8,
-    "aggroRadius": 4
+    "aggroRadius": 4,
+    "idleSpeed": 0.7,
+    "aggroSpeed": 2.0
   }
 ]

@@ -1,6 +1,6 @@
 package mmo.server.game
 
-import mmo.common.api.{Constants, Direction, EntityAttacked, EntityDamaged, EntityPositionsChanged, Id, MobId, PlayerId}
+import mmo.common.api.{Direction, EntityAttacked, EntityDamaged, EntityPositionsChanged, Id, MobId, PlayerId}
 import mmo.common.linear.V2
 import mmo.common.map.GameMap
 
@@ -27,7 +27,9 @@ class MobUpdateLogic(
   private def updateMobsOnMap(map: ServerGameMap, mobsOnMap: Iterable[Mob])(state: GameState): GameState = {
 
     val (movedMobs, shouldBroadcast, attackOpts) = mobsOnMap.map { mob =>
-      val attackTarget = mob.attackTarget.flatMap(state.players.get)
+      val attackTarget = mob.attackTarget
+        .flatMap(state.players.get)
+        .filter(_.mapId == mob.mapId)
       val attack = attackIfLegal(mob, attackTarget, state)
       val newMob = Function.chain(Seq(
         seekTarget(state),
@@ -39,9 +41,9 @@ class MobUpdateLogic(
         }
       ))(mob)
 
-      val changedDirection = mob.direction != newMob.direction
+      val movementChanged = mob.direction != newMob.direction || mob.speed != newMob.speed
       val enoughTicksPassed = state.tick - mob.lastBroadcastTick >= Tick.largeTickFrequency
-      (newMob, changedDirection || enoughTicksPassed, attack)
+      (newMob, movementChanged || enoughTicksPassed, attack)
     }.unzip3
 
     val attacks = attackOpts.collect { case Some(x) => x }
@@ -92,17 +94,19 @@ class MobUpdateLogic(
     }
 
   private def seekTarget(state: GameState)(mob: Mob): Mob = {
-    val candidates = state.players.values.collect(Function.unlift { player =>
-      val playerPosition = player.collisionBoxCenter
-      val playerDistanceSq = (playerPosition - mob.collisionBoxCenter).lengthSq
-      val isInAggroRadius = playerDistanceSq <= mob.template.aggroRadiusSq
-      val isNearEnoughSpawn = (playerPosition - mob.spawn.position).lengthSq <= maxDistanceFromSpawnSq
-      if (isInAggroRadius && isNearEnoughSpawn) {
-        Some(player -> playerDistanceSq)
-      } else {
-        None
-      }
-    })
+    val candidates = state.players.values
+      .filter(_.mapId == mob.mapId)
+      .collect(Function.unlift { player =>
+        val playerPosition = player.collisionBoxCenter
+        val playerDistanceSq = (playerPosition - mob.collisionBoxCenter).lengthSq
+        val isInAggroRadius = playerDistanceSq <= mob.template.aggroRadiusSq
+        val isNearEnoughSpawn = (playerPosition - mob.spawn.position).lengthSq <= maxDistanceFromSpawnSq
+        if (isInAggroRadius && isNearEnoughSpawn) {
+          Some(player -> playerDistanceSq)
+        } else {
+          None
+        }
+      })
     mob.attackTarget match {
       case Some(targetId) if candidates.exists(_._1.id == targetId) =>
         mob
@@ -117,7 +121,7 @@ class MobUpdateLogic(
   private def moveMob(map: GameMap, attackTarget: Option[PlayerState])(mob: Mob): Mob = {
 
     def nextPositionAlong(position: V2[Double], direction: Direction, dt: Double) : V2[Double] =
-      position + (dt * Constants.mobTilePerSecond / Tick.ticksPerSecond) *: direction.vector
+      position + (dt * mob.speed / Tick.ticksPerSecond) *: direction.vector
 
     def isIllegal(position: V2[Double]): Boolean = {
       val wouldCollide = map.doesRectCollide(mob.template.appearance.collisionBox.translate(position))
@@ -125,15 +129,20 @@ class MobUpdateLogic(
       wouldCollide || wouldBeFarFromSpawn
     }
 
-    def respawned: Mob = mob.copy(position = mob.spawn.position, direction = Direction.none, attackTarget = None)
+    def respawned: Mob = mob.copy(
+      position = mob.spawn.position,
+      nextPosition = mob.spawn.position,
+      direction = Direction.none,
+      attackTarget = None
+    )
 
     def withRandomLegalDirection(position: V2[Double]): Mob = {
-      val candidates = Direction.allMoving.filter { dir =>
-        !isIllegal(nextPositionAlong(position, dir, dt = 1)) &&
-          !isIllegal(nextPositionAlong(position, dir, dt = 3))
-      }
-      random.shuffle(candidates).headOption.fold(respawned) { direction =>
-        mob.copy(position = position, direction = direction, attackTarget = None)
+      val candidates = Direction.allMoving
+        .map { dir => dir -> nextPositionAlong(position, dir, dt = 1) }
+        .filter { case (_, next) => !isIllegal(next)  }
+      random.shuffle(candidates).headOption.fold(respawned) {
+        case (direction, nextPosition) =>
+          mob.copy(position = position, nextPosition = nextPosition, direction = direction, attackTarget = None)
       }
     }
 
@@ -141,25 +150,25 @@ class MobUpdateLogic(
     // so the next position should have already been set to a legal one at the previous tick.
     // Therefore we check if the position two ticks later is valid
     // and go ahead with the next position according to the current direction.
-    val nextPosition = nextPositionAlong(mob.position, mob.direction, dt = 1)
-    val nextPosition2 = nextPositionAlong(mob.position, mob.direction, dt = 2)
+    val afterNextPosition = nextPositionAlong(mob.nextPosition, mob.direction, dt = 1)
 
-    if (isIllegal(nextPosition)) {
-      // This branch should rarely/never happen
-      respawned
-    } else if (isIllegal(nextPosition2)) {
-      withRandomLegalDirection(nextPosition)
+    if (isIllegal(afterNextPosition)) {
+      withRandomLegalDirection(mob.nextPosition)
     } else {
       val directionToTarget = attackTarget
-        .map { target => Direction.fromVector(target.collisionBoxCenter - mob.collisionBoxCenter) }
-        .filter { direction => !isIllegal(nextPositionAlong(nextPosition, direction, dt = 1)) }
+        .map { target =>
+          val direction = Direction.fromVector(target.collisionBoxCenter - mob.collisionBoxCenter)
+          val nextPosition = nextPositionAlong(mob.nextPosition, direction, dt = 1)
+          direction -> nextPosition
+        }
+        .filter { case (_, next) => !isIllegal(next) }
       directionToTarget match {
-        case Some(direction) =>
-          mob.copy(position = nextPosition, direction = direction)
+        case Some((direction, nextPosition)) =>
+          mob.copy(position = mob.nextPosition, nextPosition = nextPosition, direction = direction)
         case None if !mob.direction.isMoving || random.nextDouble() < 0.01 =>
-          withRandomLegalDirection(nextPosition)
+          withRandomLegalDirection(mob.nextPosition)
         case None =>
-          mob.copy(position = nextPosition)
+          mob.copy(position = mob.nextPosition, nextPosition = afterNextPosition)
       }
     }
   }

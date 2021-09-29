@@ -30,7 +30,8 @@ object EntityPositionsChanged {
     entityId: EntityId,
     position: V2[Double],
     direction: Direction,
-    lookDirection: LookDirection
+    lookDirection: LookDirection,
+    speed: Double
   )
 }
 
@@ -51,7 +52,8 @@ final case class EntityAppeared(
   hitPoints: Int,
   position: V2[Double],
   direction: Direction,
-  lookDirection: LookDirection
+  lookDirection: LookDirection,
+  speed: Double
 )
 
 final case class MobDied(id: MobId) extends PlayerEvent

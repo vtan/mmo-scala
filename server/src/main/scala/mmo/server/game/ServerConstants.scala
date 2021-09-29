@@ -9,6 +9,8 @@ object ServerConstants {
 
   val playerCollisionBoxCenter: V2[Double] = playerCollisionBox.center
 
+  val playerSpeed: Double = 4.0
+
   val playerAppearance = EntityAppearance(
     height = 2,
     spriteOffsets = SpriteOffsets(right = 6, down = 0, left = 9, up = 3),

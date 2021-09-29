@@ -30,9 +30,16 @@ final case class PlayerState(
       hitPoints = hitPoints,
       position = position,
       direction = direction,
-      lookDirection = lookDirection
+      lookDirection = lookDirection,
+      speed = ServerConstants.playerSpeed
     )
 
   def toPositionChange: EntityPositionsChanged.Entry =
-    EntityPositionsChanged.Entry(id, position, direction, lookDirection)
+    EntityPositionsChanged.Entry(
+      entityId = id,
+      position = position,
+      direction = direction,
+      lookDirection = lookDirection,
+      speed = ServerConstants.playerSpeed
+    )
 }

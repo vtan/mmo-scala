@@ -1,6 +1,6 @@
 package mmo.server.game
 
-import mmo.common.api.{Constants, Direction, EntityAppeared, EntityPositionsChanged, Id, LookDirection, MobId, PlayerId}
+import mmo.common.api.{Direction, EntityAppeared, EntityPositionsChanged, Id, LookDirection, MobId, PlayerId}
 import mmo.common.linear.V2
 import mmo.server.game.ServerGameMap.MobSpawn
 
@@ -12,29 +12,34 @@ final case class Mob(
   position: V2[Double],
   direction: Direction,
   lookDirection: LookDirection,
+  nextPosition: V2[Double],
   hitPoints: Int,
   lastBroadcastTick: Long,
   attackTarget: Option[PlayerId],
   lastAttackTick: Long
 ) {
 
+  lazy val speed: Double =
+    if (attackTarget.isDefined) template.aggroSpeed else template.idleSpeed
+
   def collisionBoxCenter: V2[Double] = position + template.appearance.collisionCenter
 
-  def toEvent(dt: Double): EntityAppeared =
+  def toEvent(fractionOfTick: Double): EntityAppeared =
     EntityAppeared(
       id = id,
       appearance = template.appearance,
       maxHitPoints = template.maxHitPoints,
       hitPoints = hitPoints,
       position = if (direction.isMoving) {
-        position + (dt * Constants.mobTilePerSecond) *: direction.vector
+        V2.lerp(fractionOfTick, position, nextPosition)
       } else {
         position
       },
       direction = direction,
-      lookDirection = lookDirection
+      lookDirection = lookDirection,
+      speed = speed
     )
 
   def toPositionChange: EntityPositionsChanged.Entry =
-    EntityPositionsChanged.Entry(id, position, direction, lookDirection)
+    EntityPositionsChanged.Entry(id, position, direction, lookDirection, speed)
 }

@@ -12,7 +12,7 @@ class MobSpawnLogic(
     val (mobsToRespawn, remaining) = state.mobsToRespawn.partition(_._1.isBefore(state.serverTime))
     val newMobs = mobsToRespawn.map(_._2).map(spawnMob)
     newMobs.foreach { mob =>
-      val event = mob.toEvent(dt = 0)
+      val event = mob.toEvent(fractionOfTick = 0)
       state.players.values
         .filter(_.mapId == mob.mapId)
         .foreach(_.queue.offer(EntitiesAppeared(Seq(event))))
@@ -36,6 +36,7 @@ class MobSpawnLogic(
       position = mobSpawn.position,
       direction = Direction.none,
       lookDirection = LookDirection.down,
+      nextPosition = mobSpawn.position,
       hitPoints = template.maxHitPoints,
       lastBroadcastTick = 0,
       attackTarget = None,

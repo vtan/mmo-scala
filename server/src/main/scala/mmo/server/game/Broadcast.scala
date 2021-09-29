@@ -20,7 +20,7 @@ object Broadcast {
         val playersOnMap = state.players.filter(_._2.mapId == player.mapId).values
         val mobsAppeared = state.mobs.values
           .filter(_.mapId == player.mapId)
-          .map(_.toEvent(dt = state.secondsSinceLastTick))
+          .map(_.toEvent(fractionOfTick = state.fractionOfTick))
         val playersAppeared = playersOnMap.map(_.toAppearEvent)
 
         List(EntitiesAppeared(mobsAppeared.toSeq ++ playersAppeared))

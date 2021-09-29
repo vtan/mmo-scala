@@ -1,6 +1,6 @@
 package mmo.client.game
 
-import mmo.common.api.{Constants, Direction, EntityAppearance, EntityAppeared, EntityPositionsChanged, LookDirection, MobId, PlayerId}
+import mmo.common.api.{Constants, Direction, EntityAppearance, EntityAppeared, EntityPositionsChanged, LookDirection}
 import mmo.common.linear.V2
 
 final case class EntityState(
@@ -9,7 +9,7 @@ final case class EntityState(
   interpolationSource: V2[Double],
   interpolationTarget: V2[Double],
   direction: Direction,
-  speedTilePerSecond: Double,
+  speed: Double,
   lookDirection: LookDirection,
   directionLastChangedAt: Double,
   lastServerEventAt: Double,
@@ -26,6 +26,7 @@ final case class EntityState(
       lastPositionFromServer = update.position,
       direction = update.direction,
       lookDirection = update.lookDirection,
+      speed = update.speed,
       directionLastChangedAt = if (this.lookDirection == update.lookDirection) this.directionLastChangedAt else now,
       lastServerEventAt = now,
 
@@ -35,7 +36,7 @@ final case class EntityState(
         V2.zero
       },
       interpolationTarget = if (calculateInterpolation) {
-        update.position + (EntityState.interpolationPeriod * speedTilePerSecond) *: update.direction.vector
+        update.position + (EntityState.interpolationPeriod * update.speed) *: update.direction.vector
       } else {
         V2.zero
       }
@@ -84,10 +85,7 @@ object EntityState {
       interpolationSource = event.position,
       interpolationTarget = event.position,
       direction = event.direction,
-      speedTilePerSecond = event.id match {
-        case _: PlayerId => Constants.playerTilePerSecond
-        case _: MobId => Constants.mobTilePerSecond
-      },
+      speed = event.speed,
       lookDirection = event.lookDirection,
       directionLastChangedAt = now,
       lastServerEventAt = now,
