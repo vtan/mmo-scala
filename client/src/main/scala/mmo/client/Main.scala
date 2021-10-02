@@ -40,7 +40,10 @@ object Main {
       now = glfwGetTime()
       fpsCounter.endOfFrame(window, now)
 
-      nextStage.foreach(build => appStage = build())
+      nextStage.foreach { build =>
+        appStage = build()
+        appStage.init(now)
+      }
     }
 
     glfwFreeCallbacks(window)

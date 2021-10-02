@@ -1,6 +1,6 @@
 package mmo.client.game
 
-import mmo.client.graphics.{GlfwEvent, GlfwUtil, KeyboardEvent, MouseButtonEvent}
+import mmo.client.graphics.{GlfwEvent, GlfwUtil, KeyboardEvent, MouseButtonEvent, ScreenFader}
 import mmo.client.network.Connection
 import mmo.common.api._
 import mmo.common.linear.{Rect, V2}
@@ -50,7 +50,13 @@ class Game(
   private var camera = Camera.centerOn(entityStates.get(playerId).fold(V2.zero)(_.position), gameMap.size, windowGeometry)
   private val damageLabels = mutable.ArrayBuffer.empty[DamageLabel]
 
+  private val screenFader = new ScreenFader(nvg)
+  private val teleportFadeLength: Double = 0.8
+
   private var debugShowHitbox: Boolean = false
+
+  override def init(now: Double): Unit =
+    screenFader.startFadeIn(now, teleportFadeLength)
 
   override def frame(events: List[GlfwEvent], mousePosition: V2[Double], now: Double, dt: Double): Option[() => AppStage] =
     if (connection.isConnected) {
@@ -222,6 +228,7 @@ class Game(
         gameMap = compactGameMap.toGameMap
         // Player positions (including ours) on the new map will follow in another event
         entityStates.clear()
+        screenFader.startFadeIn(now, teleportFadeLength)
 
       case OtherPlayerDisappeared(id) =>
         entityStates -= id
@@ -291,6 +298,8 @@ class Game(
         renderText(nvg, point.x, point.y, label.label, colors.red)
       }
     }
+
+    screenFader.render(now, windowGeometry.windowSize)
 
     nvgTextAlign(nvg, NVG_ALIGN_TOP | NVG_ALIGN_LEFT)
     renderText(nvg, 0, 0, lastPingRtt)
