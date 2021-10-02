@@ -1,7 +1,6 @@
 package mmo.server.game
 
 import mmo.common.api._
-import mmo.common.linear.V2
 
 import akka.stream.scaladsl.SourceQueueWithComplete
 import java.util.UUID
@@ -18,6 +17,7 @@ class GameLogic(
   private val mobSpawnLogic = new MobSpawnLogic(mobTemplates)
   private val mobUpdateLogic = new MobUpdateLogic(maps)
   private val playerActionLogic = new PlayerActionLogic(maps, mapNames)
+  private val playerSpawnLogic = new PlayerSpawnLogic(maps)
 
   def initialGameState: GameState = {
     val mobs = maps.values.flatMap(_.mobSpawns.map(mobSpawnLogic.spawnMob))
@@ -29,20 +29,7 @@ class GameLogic(
 
   def playerConnected(playerId: PlayerId, queue: SourceQueueWithComplete[PlayerEvent])(state: GameState): GameState = {
     val name = UUID.randomUUID().toString.take(6).toUpperCase
-    val (mapId, map) = maps.minBy(_._1.asLong)
-    val player = PlayerState(playerId, name, mapId, V2(2, 1), Direction.none, LookDirection.down, Constants.playerMaxHitPoints, Constants.playerMaxHitPoints, queue, ServerTime.now, ServerTime.now, ServerConstants.playerAppearance)
-
-    val newState = state.updatePlayer(player.id, player)
-    val playerNames = newState.players.map { case (id, player) => id -> player.name }.toSeq
-
-    queue.offer(SessionEstablished(playerId, playerNames, map.compactGameMap))
-    Broadcast.except(
-      OtherPlayerConnected(player.id, player.name),
-      player.id
-    )(newState.players.values)
-
-    Broadcast.mapEnter(player, previousMapId = None)(newState)
-    newState
+    playerSpawnLogic.playerConnected(playerId, name, queue)(state)
   }
 
   def playerCommandReceived(playerId: PlayerId, command: PlayerCommand)(state: GameState): GameState =
@@ -70,8 +57,10 @@ class GameLogic(
 
   def timerTicked(state: GameState): GameState = {
     val afterSmallTick = mobUpdateLogic.updateMobs(state)
-    if (state.tick % Tick.largeTickFrequency == 0) {
-      mobSpawnLogic.respawnMobs(afterSmallTick)
+    if (state.tick.isLargeTick) {
+      playerSpawnLogic.respawnPlayers(
+        mobSpawnLogic.respawnMobs(afterSmallTick)
+      )
     } else {
       afterSmallTick
     }

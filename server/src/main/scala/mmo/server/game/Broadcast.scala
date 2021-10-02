@@ -17,7 +17,7 @@ object Broadcast {
       val isOnPreviousMap = previousMapId.contains(recipient.mapId)
 
       val events: Seq[PlayerEvent] = if (recipient.id == player.id) {
-        val playersOnMap = state.players.filter(_._2.mapId == player.mapId).values
+        val playersOnMap = state.alivePlayersOnMap(player.mapId)
         val mobsAppeared = state.mobs.values
           .filter(_.mapId == player.mapId)
           .map(_.toEvent(fractionOfTick = state.fractionOfTick))

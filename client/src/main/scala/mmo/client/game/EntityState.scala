@@ -71,6 +71,8 @@ final case class EntityState(
 
   def isInterpolatingAt(t: Double): Boolean =
     t - lastServerEventAt <= EntityState.interpolationPeriod
+
+  def isAlive: Boolean = dyingAnimationStarted.isEmpty
 }
 
 object EntityState {

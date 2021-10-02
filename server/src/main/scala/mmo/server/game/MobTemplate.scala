@@ -6,7 +6,7 @@ final case class MobTemplate(
   name: String,
   appearance: EntityAppearance,
   maxHitPoints: Int,
-  attackCooldownTicks: Long,
+  attackCooldownTicks: Tick,
   aggroRadius: Double,
   idleSpeed: Double,
   aggroSpeed: Double

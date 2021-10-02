@@ -11,10 +11,15 @@ object ServerConstants {
 
   val playerSpeed: Double = 4.0
 
+  val playerMaxHitPoints: Int = 20
+
   val playerAppearance = EntityAppearance(
     height = 2,
     spriteOffsets = SpriteOffsets(right = 6, down = 0, left = 9, up = 3),
     spriteBoundary = Rect(-1.0, 0.0, 1.0, 2.0),
     collisionBox = playerCollisionBox
   )
+
+  val playerRespawnTime: Tick = Tick.fromSeconds(3.0)
+  val mobRespawnTime: Tick = Tick.fromSeconds(10.0)
 }

@@ -3,19 +3,18 @@ package mmo.server.game
 import mmo.common.api.{Direction, EntitiesAppeared, MobId}
 import mmo.server.game.ServerGameMap.MobSpawn
 
+import scala.math.Ordering.Implicits.infixOrderingOps
+
 class MobSpawnLogic(
   mobTemplates: Map[String, MobTemplate]
 ) {
 
   def respawnMobs(state: GameState): GameState = {
-    // TODO: measure respawn time in ticks
-    val (mobsToRespawn, remaining) = state.mobsToRespawn.partition(_._1.isBefore(state.serverTime))
+    val (mobsToRespawn, remaining) = state.mobsToRespawn.partition(_._1 <= state.tick)
     val newMobs = mobsToRespawn.map(_._2).map(spawnMob)
     newMobs.foreach { mob =>
       val event = mob.toEvent(fractionOfTick = 0)
-      state.players.values
-        .filter(_.mapId == mob.mapId)
-        .foreach(_.queue.offer(EntitiesAppeared(Seq(event))))
+      Broadcast.toMap(EntitiesAppeared(Seq(event)), mob.mapId)(state.players.values)
     }
     state.copy(
       mobsToRespawn = remaining,
@@ -37,9 +36,9 @@ class MobSpawnLogic(
       direction = Direction.none,
       nextPosition = mobSpawn.position,
       hitPoints = template.maxHitPoints,
-      lastBroadcastTick = 0,
+      lastBroadcastTick = Tick(0),
       attackTarget = None,
-      lastAttackTick = 0
+      lastAttackTick = Tick(0)
     )
   }
 }

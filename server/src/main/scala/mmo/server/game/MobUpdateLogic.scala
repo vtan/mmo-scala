@@ -1,9 +1,10 @@
 package mmo.server.game
 
-import mmo.common.api.{Direction, EntityAttacked, EntityDamaged, EntityPositionsChanged, Id, MobId, PlayerId}
+import mmo.common.api.{Direction, EntityAttacked, EntityDamaged, EntityDied, EntityPositionsChanged, Id, MobId, PlayerEvent, PlayerId}
 import mmo.common.linear.V2
 import mmo.common.map.GameMap
 
+import scala.math.Ordering.Implicits.infixOrderingOps
 import scala.util.Random
 
 class MobUpdateLogic(
@@ -28,7 +29,7 @@ class MobUpdateLogic(
 
     val (movedMobs, shouldBroadcast, attackOpts) = mobsOnMap.map { mob =>
       val attackTarget = mob.attackTarget
-        .flatMap(state.players.get)
+        .flatMap(state.alivePlayerOnMap(_, map.id))
         .filter(_.mapId == mob.mapId)
       val attack = attackIfLegal(mob, attackTarget, state)
       val newMob = Function.chain(Seq(
@@ -50,18 +51,12 @@ class MobUpdateLogic(
 
     val attackEvents = attacks.map { case (mobId, _, _) => EntityAttacked(mobId) }
 
-    val (damagedPlayers, damageEvents) = attacks
+    val (damagedPlayers, damageEvents, playerRespawns) = attacks
       .groupMapReduce(_._2)(_._3)(_ + _)
-      .map {
-        case (playerId, damage) =>
-          val player = state.players(playerId)
-          val newHitPoints = (player.hitPoints - damage) match {
-            case n if n > 0 => n
-            case _ => player.maxHitPoints
-          }
-          player.copy(hitPoints = newHitPoints) -> EntityDamaged(playerId, damage, newHitPoints)
-      }
-      .unzip
+      .collect(Function.unlift({
+        case (playerId, damage) => state.alivePlayerOnMap(playerId, map.id).map(harmPlayer(_, damage, state))
+      }))
+      .unzip3
 
     val (tickedMobs, movementEvents) = if (shouldBroadcast.exists(identity)) {
       val ticked = movedMobs.map(_.copy(lastBroadcastTick = state.tick))
@@ -72,11 +67,14 @@ class MobUpdateLogic(
     }
 
     // TODO merge them into one event
-    (movementEvents ++ attackEvents ++ damageEvents).foreach { event =>
+    (movementEvents ++ attackEvents ++ damageEvents.flatten).foreach { event =>
       Broadcast.toMap(event, map.id)(state.players.values)
     }
 
-    state.updateMobs(tickedMobs).updatePlayers(damagedPlayers)
+    state
+      .updateMobs(tickedMobs)
+      .updatePlayers(damagedPlayers)
+      .addPlayerRespawns(playerRespawns.flatten)
   }
 
   private def attackIfLegal(mob: Mob, attackTarget: Option[PlayerState], state: GameState): Option[(MobId, PlayerId, Int)] =
@@ -93,9 +91,25 @@ class MobUpdateLogic(
       None
     }
 
+  private def harmPlayer(player: PlayerState, damage: Int, state: GameState): (PlayerState, Seq[PlayerEvent], Option[(Tick, PlayerId)]) = {
+    (player.hitPoints - damage) match {
+      case newHitPoints if newHitPoints > 0 =>
+        (
+          player.copy(hitPoints = newHitPoints),
+          Seq(EntityDamaged(player.id, damage, newHitPoints)),
+          None
+        )
+      case _ =>
+        (
+          player.copy(hitPoints = 0),
+          Seq(EntityDamaged(player.id, damage, 0), EntityDied(player.id)),
+          Some((state.tick + ServerConstants.playerRespawnTime, player.id))
+        )
+    }
+  }
+
   private def seekTarget(state: GameState)(mob: Mob): Mob = {
-    val candidates = state.players.values
-      .filter(_.mapId == mob.mapId)
+    val candidates = state.alivePlayersOnMap(mob.mapId)
       .collect(Function.unlift { player =>
         val playerPosition = player.collisionBoxCenter
         val playerDistanceSq = (playerPosition - mob.collisionBoxCenter).lengthSq

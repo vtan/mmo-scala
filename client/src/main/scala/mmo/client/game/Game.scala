@@ -75,11 +75,11 @@ class Game(
     val positionBeforeUpdate = (gameMap.size, entityStates.get(playerId).map(_.position))
 
     entityStates.filterInPlace {
-      case (_: MobId, entity) if entity.dyingAnimationStarted.exists(_ + EntityState.dyingAnimationLength <= now) => false
-      case _ => true
+      case (id, entity) =>
+        id == playerId || entity.dyingAnimationStarted.forall(_ + EntityState.dyingAnimationLength > now)
     }
     entityStates.mapValuesInPlace { (entityId, entity) =>
-      if (entity.dyingAnimationStarted.nonEmpty) {
+      if (!entity.isAlive) {
         entity
       } else if (entityId == playerId) {
         updateSelfMovement(self = entity, dt = dt)
@@ -130,7 +130,7 @@ class Game(
 
       case MouseButtonEvent(GLFW_MOUSE_BUTTON_LEFT, MouseButtonEvent.Press) =>
         entityStates.updateWith(playerId)(_.map { player =>
-          if (player.attackAnimationStarted + Constants.playerAttackLength < now) {
+          if (player.isAlive && player.attackAnimationStarted + Constants.playerAttackLength < now) {
             val target = camera.screenToPoint(mousePosition)
             val clickDirection = target - (player.position + player.appearance.collisionBox.xy)
             val lookDirection = LookDirection.fromVector(clickDirection)
@@ -245,7 +245,7 @@ class Game(
           entityStates(entity.id) = EntityState.newAt(entity, now)
         }
 
-      case MobDied(id) =>
+      case EntityDied(id) =>
         val _ = entityStates.updateWith(id)(_.map(_.copy(
           dyingAnimationStarted = Some(now),
           direction = Direction.none
@@ -301,6 +301,13 @@ class Game(
 
     screenFader.render(now, windowGeometry.windowSize)
 
+    if (entityStates.get(playerId).exists(!_.isAlive)) {
+      nvgFontSize(nvg, 60)
+      nvgTextAlign(nvg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE)
+      renderText(nvg, resources.windowSize.x / 2, resources.windowSize.y / 2, "You died")
+    }
+
+    nvgFontSize(nvg, 20)
     nvgTextAlign(nvg, NVG_ALIGN_TOP | NVG_ALIGN_LEFT)
     renderText(nvg, 0, 0, lastPingRtt)
     renderText(nvg, 0, 20, lastEventStats)
@@ -332,7 +339,10 @@ class Game(
 
   private def renderEntities(now: Double): Unit = {
     def isHiddenDying(entity: EntityState): Boolean =
-      entity.dyingAnimationStarted.exists(t => ((t - now) / EntityState.dyingAnimationPeriod).toInt % 2 == 0)
+      entity.dyingAnimationStarted.exists { t =>
+        now >= t + EntityState.dyingAnimationLength ||
+          ((t - now) / EntityState.dyingAnimationPeriod).toInt % 2 == 0
+      }
 
     val entities = entityStates.toArray
     entities.sortInPlaceBy(_._2.position.y)

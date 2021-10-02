@@ -6,7 +6,5 @@ object Constants {
 
   val playerAttackRangeSq: Double = 1.6 * 1.6
 
-  val playerMaxHitPoints: Int = 20
-
   val maxMessageBytes: Int = 4096
 }

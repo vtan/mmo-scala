@@ -13,9 +13,9 @@ final case class Mob(
   direction: Direction,
   nextPosition: V2[Double],
   hitPoints: Int,
-  lastBroadcastTick: Long,
+  lastBroadcastTick: Tick,
   attackTarget: Option[PlayerId],
-  lastAttackTick: Long
+  lastAttackTick: Tick
 ) {
 
   lazy val speed: Double =

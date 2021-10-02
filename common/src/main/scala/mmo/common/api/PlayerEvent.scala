@@ -56,6 +56,6 @@ final case class EntityAppeared(
   speed: Double
 )
 
-final case class MobDied(id: MobId) extends PlayerEvent
+final case class EntityDied(id: EntityId) extends PlayerEvent
 
 final case class EntityDamaged(id: EntityId, damage: Int, hitPoints: Int) extends PlayerEvent

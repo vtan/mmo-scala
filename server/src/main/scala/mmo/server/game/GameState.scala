@@ -1,23 +1,30 @@
 package mmo.server.game
 
-import mmo.common.api.{MobId, PlayerId}
+import mmo.common.api.{Id, MobId, PlayerId}
 import mmo.server.game.ServerGameMap.MobSpawn
 
 import java.util.concurrent.TimeUnit
 
 final case class GameState(
   serverTime: ServerTime,
-  tick: Long,
+  tick: Tick,
   lastTickAt: ServerTime,
   players: Map[PlayerId, PlayerState],
   mobs: Map[MobId, Mob],
-  mobsToRespawn: Vector[(ServerTime, MobSpawn)]
+  mobsToRespawn: Vector[(Tick, MobSpawn)],
+  playersToRespawn: Vector[(Tick, PlayerId)]
 ) {
   lazy val fractionOfTick: Double =
     (serverTime - lastTickAt).toSeconds / Tick.tickPeriod.toUnit(TimeUnit.SECONDS)
 
-  def updatePlayer(id: PlayerId, state: PlayerState): GameState =
-    copy(players = players.updated(id, state))
+  def alivePlayerOnMap(playerId: PlayerId, mapId: Id[ServerGameMap]): Option[PlayerState] =
+    players.get(playerId).filter(p => p.mapId == mapId && p.isAlive)
+
+  def alivePlayersOnMap(mapId: Id[ServerGameMap]): Iterable[PlayerState] =
+    players.values.filter(p => p.mapId == mapId && p.isAlive)
+
+  def updatePlayer(player: PlayerState): GameState =
+    copy(players = players.updated(player.id, player))
 
   def updatePlayers(players: Iterable[PlayerState]): GameState =
     copy(players = this.players ++ players.map(p => p.id -> p))
@@ -31,20 +38,24 @@ final case class GameState(
   def removePlayer(id: PlayerId): GameState =
     copy(players = players.removed(id))
 
+  def addPlayerRespawns(respawns: Iterable[(Tick, PlayerId)]): GameState =
+    copy(playersToRespawn = playersToRespawn ++ respawns)
+
   def updateServerTime(): GameState =
     copy(serverTime = ServerTime.now)
 
   def increaseTick: GameState =
-    copy(tick = tick + 1, lastTickAt = serverTime)
+    copy(tick = tick + Tick(1), lastTickAt = serverTime)
 }
 
 object GameState {
   val empty: GameState = GameState(
     serverTime = ServerTime(Long.MinValue),
-    tick = 0,
+    tick = Tick(0),
     lastTickAt = ServerTime(Long.MinValue),
     players = Map.empty,
     mobs = Map.empty,
-    mobsToRespawn = Vector.empty
+    mobsToRespawn = Vector.empty,
+    playersToRespawn = Vector.empty
   )
 }

@@ -1,6 +1,6 @@
 package mmo.server.game
 
-import mmo.common.api.{Constants, Direction, EntityAppearance, EntityAppeared, EntityPositionsChanged, Id, LookDirection, PlayerEvent, PlayerId}
+import mmo.common.api.{Direction, EntityAppearance, EntityAppeared, EntityPositionsChanged, Id, LookDirection, PlayerEvent, PlayerId}
 import mmo.common.linear.V2
 
 import akka.stream.scaladsl.SourceQueueWithComplete
@@ -22,11 +22,13 @@ final case class PlayerState(
 
   def collisionBoxCenter: V2[Double] = position + appearance.collisionCenter
 
+  def isAlive: Boolean = hitPoints > 0
+
   def toAppearEvent: EntityAppeared =
     EntityAppeared(
       id = id,
       appearance = appearance,
-      maxHitPoints = Constants.playerMaxHitPoints,
+      maxHitPoints = maxHitPoints,
       hitPoints = hitPoints,
       position = position,
       direction = direction,

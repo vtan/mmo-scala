@@ -1,6 +1,6 @@
 package mmo.server.game
 
-import mmo.common.api.{Constants, Direction, EntityAttacked, EntityDamaged, Id, MobDied, PlayerCommand, Teleported}
+import mmo.common.api.{Constants, Direction, EntityAttacked, EntityDamaged, EntityDied, Id, PlayerCommand, Teleported}
 import mmo.common.linear.V2
 
 class PlayerActionLogic(
@@ -16,57 +16,60 @@ class PlayerActionLogic(
     val maxAllowedDistanceSqFromLast: Double = 2 * (1.1 * 1.1)
   }
 
-  def handlePlayerMovement(existing: PlayerState, requested: PlayerCommand.Move)(state: GameState): GameState = {
-    val predictedPosition = {
-      val timeElapsed = (state.serverTime - existing.receivedAtNano).toSeconds
-      existing.position + timeElapsed *: existing.direction.vector
-    }
-    val map = maps(existing.mapId)
-    val movedToObstacle = map.gameMap.doesRectCollide(ServerConstants.playerCollisionBox.translate(requested.position))
-    val movedFarFromLastPosition = (requested.position - existing.position).lengthSq >= positionConstraints.maxAllowedDistanceSqFromLast
-    val movedFarFromPredicted = (predictedPosition - requested.position).lengthSq >= positionConstraints.maxAllowedDistanceSqFromPredicted
-    val invalid = movedToObstacle || movedFarFromLastPosition || movedFarFromPredicted
+  def handlePlayerMovement(existing: PlayerState, requested: PlayerCommand.Move)(state: GameState): GameState =
+    if (existing.isAlive) {
+      val predictedPosition = {
+        val timeElapsed = (state.serverTime - existing.receivedAtNano).toSeconds
+        existing.position + timeElapsed *: existing.direction.vector
+      }
+      val map = maps(existing.mapId)
+      val movedToObstacle = map.gameMap.doesRectCollide(ServerConstants.playerCollisionBox.translate(requested.position))
+      val movedFarFromLastPosition = (requested.position - existing.position).lengthSq >= positionConstraints.maxAllowedDistanceSqFromLast
+      val movedFarFromPredicted = (predictedPosition - requested.position).lengthSq >= positionConstraints.maxAllowedDistanceSqFromPredicted
+      val invalid = movedToObstacle || movedFarFromLastPosition || movedFarFromPredicted
 
-    val enteredTeleport = if (!invalid) {
-      findTeleportAt(existing.position, requested.position, map.teleports)
+      val enteredTeleport = if (!invalid) {
+        findTeleportAt(existing.position, requested.position, map.teleports)
+      } else {
+        None
+      }
+
+      enteredTeleport match {
+        case Some((teleport, targetMap)) =>
+          val newPlayer = existing.copy(
+            mapId = targetMap.id,
+            position = teleport.targetPosition,
+            direction = Direction.none,
+            receivedAtNano = state.serverTime
+          )
+          val newState = state.updatePlayer(newPlayer)
+          newPlayer.queue.offer(Teleported(targetMap.compactGameMap))
+          Broadcast.mapEnter(newPlayer, Some(existing.mapId))(newState)
+          newState
+
+        case None =>
+          val newPlayer = if (invalid) {
+            existing.copy(
+              position = if (movedFarFromPredicted) predictedPosition else existing.position,
+              direction = if (movedToObstacle) Direction.none else requested.direction,
+              lookDirection = requested.lookDirection,
+              receivedAtNano = state.serverTime
+            )
+          } else {
+            existing.copy(
+              position = requested.position,
+              direction = requested.direction,
+              lookDirection = requested.lookDirection,
+              receivedAtNano = state.serverTime
+            )
+          }
+          val newState = state.updatePlayer(newPlayer)
+          Broadcast.playerPosition(newPlayer, ack = !invalid)(newState.players.values)
+          newState
+      }
     } else {
-      None
+      state
     }
-
-    enteredTeleport match {
-      case Some((teleport, targetMap)) =>
-        val newPlayer = existing.copy(
-          mapId = targetMap.id,
-          position = teleport.targetPosition,
-          direction = Direction.none,
-          receivedAtNano = state.serverTime
-        )
-        val newState = state.updatePlayer(newPlayer.id, newPlayer)
-        newPlayer.queue.offer(Teleported(targetMap.compactGameMap))
-        Broadcast.mapEnter(newPlayer, Some(existing.mapId))(newState)
-        newState
-
-      case None =>
-        val newPlayer = if (invalid) {
-          existing.copy(
-            position = if (movedFarFromPredicted) predictedPosition else existing.position,
-            direction = if (movedToObstacle) Direction.none else requested.direction,
-            lookDirection = requested.lookDirection,
-            receivedAtNano = state.serverTime
-          )
-        } else {
-          existing.copy(
-            position = requested.position,
-            direction = requested.direction,
-            lookDirection = requested.lookDirection,
-            receivedAtNano = state.serverTime
-          )
-        }
-        val newState = state.updatePlayer(newPlayer.id, newPlayer)
-        Broadcast.playerPosition(newPlayer, ack = !invalid)(newState.players.values)
-        newState
-    }
-  }
 
   private def findTeleportAt(
     oldPosition: V2[Double],
@@ -91,7 +94,7 @@ class PlayerActionLogic(
       )(state.players.values)
 
       hitMobWithPlayer(player, command.target)(
-        state.updatePlayer(player.id, player.copy(
+        state.updatePlayer(player.copy(
           attackStartedAt = state.serverTime
         ))
       )
@@ -123,8 +126,8 @@ class PlayerActionLogic(
           state.updateMob(mob.copy(hitPoints = remainingHitPoints))
         } else {
           Broadcast.toMap(entityDamaged, mob.mapId)(state.players.values)
-          Broadcast.toMap(MobDied(mob.id), mob.mapId)(state.players.values)
-          val respawnAt = state.serverTime.plusSeconds(10)
+          Broadcast.toMap(EntityDied(mob.id), mob.mapId)(state.players.values)
+          val respawnAt = state.tick + ServerConstants.mobRespawnTime
           state.copy(
             mobs = state.mobs - mob.id,
             mobsToRespawn = state.mobsToRespawn :+ (respawnAt -> mob.spawn)
