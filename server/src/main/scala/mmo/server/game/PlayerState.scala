@@ -1,6 +1,6 @@
 package mmo.server.game
 
-import mmo.common.api.{Direction, EntityAppearance, EntityAppeared, EntityPositionsChanged, Id, LookDirection, PlayerEvent, PlayerId}
+import mmo.common.api.{Direction, EntityAppearance, EntityAppeared, EntityPositionsChanged, Id, LookDirection, PlayerEvent, PlayerId, PlayerStats}
 import mmo.common.linear.V2
 
 import akka.stream.scaladsl.SourceQueueWithComplete
@@ -14,6 +14,7 @@ final case class PlayerState(
   lookDirection: LookDirection,
   hitPoints: Int,
   maxHitPoints: Int,
+  stats: PlayerStats,
   queue: SourceQueueWithComplete[PlayerEvent],
   receivedAtNano: ServerTime,
   attackStartedAt: ServerTime,

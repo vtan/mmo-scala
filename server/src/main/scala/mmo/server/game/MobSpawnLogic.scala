@@ -38,7 +38,8 @@ class MobSpawnLogic(
       hitPoints = template.maxHitPoints,
       lastBroadcastTick = Tick(0),
       attackTarget = None,
-      lastAttackTick = Tick(0)
+      lastAttackTick = Tick(0),
+      damagedBy = Set.empty
     )
   }
 }

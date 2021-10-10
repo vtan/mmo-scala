@@ -1,6 +1,6 @@
 package mmo.server.game
 
-import mmo.common.api.{Direction, Id, LookDirection, OtherPlayerConnected, PlayerEvent, PlayerId, SessionEstablished, Teleported}
+import mmo.common.api.{Direction, Id, LookDirection, OtherPlayerConnected, PlayerEvent, PlayerId, PlayerStats, SessionEstablished, StatsChanged, Teleported}
 import mmo.common.linear.V2
 
 import akka.stream.scaladsl.SourceQueueWithComplete
@@ -23,6 +23,7 @@ class PlayerSpawnLogic(
       lookDirection = LookDirection.down,
       hitPoints = ServerConstants.playerMaxHitPoints,
       maxHitPoints = ServerConstants.playerMaxHitPoints,
+      stats = PlayerStats(xp = 0),
       queue = queue,
       receivedAtNano = ServerTime.now,
       attackStartedAt = ServerTime.now,
@@ -32,7 +33,7 @@ class PlayerSpawnLogic(
     val newState = state.updatePlayer(player)
     val playerNames = newState.players.map { case (id, player) => id -> player.name }.toSeq
 
-    queue.offer(SessionEstablished(playerId, playerNames, initialMap.compactGameMap))
+    queue.offer(SessionEstablished(playerId, player.stats, playerNames, initialMap.compactGameMap))
     Broadcast.except(
       OtherPlayerConnected(player.id, player.name),
       player.id
@@ -50,14 +51,17 @@ class PlayerSpawnLogic(
         state.players.get(playerId) match {
           case None => state
           case Some(player) =>
+            val statsChanged = StatsChanged(xp = Some(0))
             val respawned = player.copy(
               mapId = initialMap.id,
               position = initialPosition,
               direction = Direction.none,
               lookDirection = LookDirection.down,
-              hitPoints = player.maxHitPoints
+              hitPoints = player.maxHitPoints,
+              stats = player.stats.change(statsChanged)
             )
             val newState = state.updatePlayer(respawned)
+            respawned.queue.offer(statsChanged)
             respawned.queue.offer(Teleported(initialMap.compactGameMap))
             Broadcast.mapEnter(respawned, previousMapId = Some(player.mapId))(newState)
             newState

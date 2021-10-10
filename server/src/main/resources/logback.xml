@@ -11,6 +11,8 @@
         <appender-ref ref="STDOUT" />
     </appender>
 
+    <logger name="akka.event.slf4j" level="warn" />
+
     <root level="info">
         <appender-ref ref="ASYNC" />
     </root>

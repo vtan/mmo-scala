@@ -1,6 +1,6 @@
 package mmo.server.game
 
-import mmo.common.api.{Constants, Direction, EntityAttacked, EntityDamaged, EntityDied, Id, PlayerCommand, Teleported}
+import mmo.common.api.{Constants, Direction, EntityAttacked, EntityDamaged, EntityDied, Id, PlayerCommand, StatsChanged, Teleported}
 import mmo.common.linear.V2
 
 class PlayerActionLogic(
@@ -123,15 +123,29 @@ class PlayerActionLogic(
         val entityDamaged = EntityDamaged(mob.id, damage = damage, hitPoints = remainingHitPoints)
         if (remainingHitPoints > 0) {
           Broadcast.toMap(entityDamaged, mob.mapId)(state.players.values)
-          state.updateMob(mob.copy(hitPoints = remainingHitPoints))
+          state.updateMob(mob.copy(
+            hitPoints = remainingHitPoints,
+            damagedBy = mob.damagedBy + player.id
+          ))
         } else {
           Broadcast.toMap(entityDamaged, mob.mapId)(state.players.values)
           Broadcast.toMap(EntityDied(mob.id), mob.mapId)(state.players.values)
+
+          val xpAwarded = 10
+          val playersWithXp = (mob.damagedBy + player.id).toSeq.flatMap { playerId =>
+            state.players.get(playerId).map { player =>
+              player.copy(stats = player.stats.copy(xp = player.stats.xp + xpAwarded))
+            }
+          }
+          playersWithXp.foreach { player =>
+            player.queue.offer(StatsChanged(xp = Some(player.stats.xp)))
+          }
+
           val respawnAt = state.tick + ServerConstants.mobRespawnTime
           state.copy(
             mobs = state.mobs - mob.id,
-            mobsToRespawn = state.mobsToRespawn :+ (respawnAt -> mob.spawn)
-          )
+            mobsToRespawn = state.mobsToRespawn :+ (respawnAt -> mob.spawn),
+          ).updatePlayers(playersWithXp)
         }
       case None => state
     }

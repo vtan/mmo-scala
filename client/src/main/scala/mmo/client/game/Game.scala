@@ -21,6 +21,7 @@ object Game {
     resources = resources,
     connection = connection,
     playerId = sessionEstablished.playerId,
+    selfStats = sessionEstablished.playerStats,
     gameMap = sessionEstablished.compactGameMap.toGameMap,
     playerNames = mutable.Map.from(sessionEstablished.players)
   )
@@ -30,7 +31,8 @@ class Game(
   resources: Resources,
   connection: Connection,
   playerId: PlayerId,
-  var gameMap: GameMap,
+  private var selfStats: PlayerStats,
+  private var gameMap: GameMap,
   playerNames: mutable.Map[PlayerId, String]
 ) extends AppStage {
 
@@ -262,6 +264,9 @@ class Game(
           entityStates(id) = entity.copy(hitPoints = hitPoints)
         }
 
+      case change: StatsChanged =>
+        selfStats = selfStats.change(change)
+
       case _: Pong | _: SessionEstablished =>
         throw new RuntimeException("This should not happen")
     }
@@ -298,6 +303,8 @@ class Game(
         renderText(nvg, point.x, point.y, label.label, colors.red)
       }
     }
+
+    renderBar(Rect(4, resources.windowSize.y - 16 - 4, 128, 16), colors.yellow, selfStats.xp.toDouble, 100)
 
     screenFader.render(now, windowGeometry.windowSize)
 
@@ -369,20 +376,28 @@ class Game(
     entityStates.foreach {
       case (_, entity) if entity.hitPoints < entity.maxHitPoints && entity.dyingAnimationStarted.isEmpty =>
         val rect = Rect(entity.position + V2(0, 1.15), V2(1.0, 0.15))
-        camera.transformVisibleRect(rect).foreach {
-          case Rect(V2(x, y), V2(w, h)) =>
-            nvgFillColor(nvg, colors.darkGrey)
-            nvgBeginPath(nvg)
-            nvgRect(nvg, x.toFloat - 1, y.toFloat - 1, w.toFloat + 2, h.toFloat + 2)
-            nvgFill(nvg)
-
-            nvgFillColor(nvg, colors.red)
-            nvgBeginPath(nvg)
-            nvgRect(nvg, x.toFloat, y.toFloat, w.toFloat * entity.hitPoints / entity.maxHitPoints.toFloat, h.toFloat)
-            nvgFill(nvg)
+        camera.transformVisibleRect(rect).foreach { rect =>
+          renderBar(rect, colors.red, entity.hitPoints.toDouble, entity.maxHitPoints.toDouble)
         }
       case _ => ()
     }
+
+  private def renderBar(rect: Rect[Double], fillColor: NVGColor, filled: Double, max: Double): Unit = {
+    val Rect(V2(x, y), V2(w, h)) = rect
+    val fillRatio = MathUtil.clamp(filled / max, 0, 1)
+
+    nvgFillColor(nvg, colors.darkGrey)
+    nvgBeginPath(nvg)
+    nvgRect(nvg, x.toFloat, y.toFloat, w.toFloat, h.toFloat)
+    nvgFill(nvg)
+
+    if (fillRatio > 0) {
+      nvgFillColor(nvg, fillColor)
+      nvgBeginPath(nvg)
+      nvgRect(nvg, x.toFloat + 1, y.toFloat + 1, ((w - 2) * fillRatio).toFloat, h.toFloat - 2)
+      nvgFill(nvg)
+    }
+  }
 
   private def renderEntityHitboxes(now: Double): Unit = {
     val regularColor = GlfwUtil.color(1, 1, 1, 0.6)
@@ -441,6 +456,7 @@ class Game(
     val darkGrey = GlfwUtil.color(0.2, 0.2, 0.2)
     val white = GlfwUtil.color(1, 1, 1)
     val red = GlfwUtil.color(1, 0.3, 0.3)
+    val yellow = GlfwUtil.color(1, 1, 0.1)
     val textShadow = GlfwUtil.color(0, 0, 0, 0.7)
   }
 }

@@ -13,6 +13,7 @@ object PlayerEvent {
 
 final case class SessionEstablished(
   playerId: PlayerId,
+  playerStats: PlayerStats,
   players: Seq[(PlayerId, String)],
   compactGameMap: CompactGameMap
 ) extends PlayerEvent
@@ -59,3 +60,7 @@ final case class EntityAppeared(
 final case class EntityDied(id: EntityId) extends PlayerEvent
 
 final case class EntityDamaged(id: EntityId, damage: Int, hitPoints: Int) extends PlayerEvent
+
+final case class StatsChanged(
+  xp: Option[Int]
+) extends PlayerEvent
