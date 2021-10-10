@@ -50,7 +50,7 @@ class Game(
 
   private val entityStates = mutable.Map.empty[EntityId, EntityState]
   private var camera = Camera.centerOn(entityStates.get(playerId).fold(V2.zero)(_.position), gameMap.size, windowGeometry)
-  private val damageLabels = mutable.ArrayBuffer.empty[DamageLabel]
+  private val floatingLabels = mutable.ArrayBuffer.empty[FloatingLabel]
 
   private val screenFader = new ScreenFader(nvg)
   private val teleportFadeLength: Double = 0.8
@@ -91,7 +91,7 @@ class Game(
         entity
       }
     }
-    damageLabels.filterInPlace(_.startTime + DamageLabel.duration > now)
+    floatingLabels.filterInPlace(_.startTime + FloatingLabel.duration > now)
 
     var nextPlayerEvent = eventReceiver.poll()
     while (nextPlayerEvent != null) {
@@ -256,15 +256,29 @@ class Game(
 
       case EntityDamaged(id, damage, hitPoints) =>
         entityStates.get(id).foreach { entity =>
-          damageLabels += DamageLabel(
-            initialPosition = entity.position + V2(0.5, 0),
+          floatingLabels += FloatingLabel(
+            initialPosition = entity.position + V2(0.5, -entity.appearance.height.toDouble + 1),
             startTime = now,
-            label = damage.toString
+            label = damage.toString,
+            color = if (id == playerId) colors.red else colors.white
           )
           entityStates(id) = entity.copy(hitPoints = hitPoints)
         }
 
       case change: StatsChanged =>
+        change.xp.foreach { xp =>
+          entityStates.get(playerId).foreach { player =>
+            val diff = xp - selfStats.xp
+            if (diff > 0) {
+              floatingLabels += FloatingLabel(
+                initialPosition = player.position + V2(0.5, -player.appearance.height.toDouble + 1),
+                startTime = now,
+                label = s"+$diff XP",
+                color = colors.yellow
+              )
+            }
+          }
+        }
         selfStats = selfStats.change(change)
 
       case _: Pong | _: SessionEstablished =>
@@ -297,10 +311,10 @@ class Game(
       case (_: MobId, _) => ()
     }
     nvgTextAlign(nvg, NVG_ALIGN_BOTTOM | NVG_ALIGN_CENTER)
-    damageLabels.foreach { label =>
-      val position = label.initialPosition + V2(0, (now - label.startTime) * DamageLabel.tilePerSecond)
+    floatingLabels.foreach { label =>
+      val position = label.initialPosition + V2(0, (now - label.startTime) * FloatingLabel.tilePerSecond)
       camera.transformVisiblePoint(position).foreach { point =>
-        renderText(nvg, point.x, point.y, label.label, colors.red)
+        renderText(nvg, point.x, point.y, label.label, label.color)
       }
     }
 
