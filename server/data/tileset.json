@@ -6,15 +6,31 @@
  "name":"tileset",
  "spacing":0,
  "tilecount":256,
- "tiledversion":"1.7.1",
+ "tiledversion":"1.7.2",
  "tileheight":16,
  "tiles":[
         {
-         "id":1,
+         "id":4,
          "type":"Obstacle"
         }, 
         {
-         "id":2,
+         "id":5,
+         "type":"Obstacle"
+        }, 
+        {
+         "id":6,
+         "type":"Obstacle"
+        }, 
+        {
+         "id":20,
+         "type":"Obstacle"
+        }, 
+        {
+         "id":21,
+         "type":"Obstacle"
+        }, 
+        {
+         "id":22,
          "type":"Obstacle"
         }, 
         {
@@ -26,6 +42,22 @@
          "type":"Front"
         }, 
         {
+         "id":34,
+         "type":"Front"
+        }, 
+        {
+         "id":36,
+         "type":"Obstacle"
+        }, 
+        {
+         "id":37,
+         "type":"Obstacle"
+        }, 
+        {
+         "id":38,
+         "type":"Obstacle"
+        }, 
+        {
          "id":48,
          "type":"Front"
         }, 
@@ -34,14 +66,200 @@
          "type":"Front"
         }, 
         {
-         "id":64,
+         "id":50,
+         "type":"Front"
+        }, 
+        {
+         "id":52,
+         "type":"Obstacle"
+        }, 
+        {
+         "id":53,
          "type":"Obstacle"
         }, 
         {
          "id":65,
          "type":"Obstacle"
+        }, 
+        {
+         "id":68,
+         "type":"Obstacle"
+        }, 
+        {
+         "id":69,
+         "type":"Obstacle"
+        }, 
+        {
+         "id":80,
+         "type":"Obstacle"
+        }, 
+        {
+         "id":81,
+         "type":"Obstacle"
+        }, 
+        {
+         "id":84,
+         "type":"Front"
+        }, 
+        {
+         "id":85,
+         "type":"Front"
+        }, 
+        {
+         "id":86,
+         "type":"Front"
+        }, 
+        {
+         "id":96,
+         "type":"Obstacle"
+        }, 
+        {
+         "id":97,
+         "type":"Obstacle"
+        }, 
+        {
+         "id":100,
+         "type":"Obstacle"
+        }, 
+        {
+         "id":101,
+         "type":"Obstacle"
+        }, 
+        {
+         "id":102,
+         "type":"Obstacle"
+        }, 
+        {
+         "id":116,
+         "type":"Obstacle"
+        }, 
+        {
+         "id":117,
+         "type":"Obstacle"
+        }, 
+        {
+         "id":118,
+         "type":"Obstacle"
         }],
  "tilewidth":16,
  "type":"tileset",
- "version":"1.6"
+ "version":"1.6",
+ "wangsets":[
+        {
+         "colors":[
+                {
+                 "color":"#ff0000",
+                 "name":"Grass",
+                 "probability":1,
+                 "tile":-1
+                }, 
+                {
+                 "color":"#00ff00",
+                 "name":"Water",
+                 "probability":1,
+                 "tile":-1
+                }, 
+                {
+                 "color":"#0000ff",
+                 "name":"Treetop",
+                 "probability":1,
+                 "tile":-1
+                }],
+         "name":"Grass",
+         "tile":-1,
+         "type":"corner",
+         "wangtiles":[
+                {
+                 "tileid":0,
+                 "wangid":[0, 1, 0, 1, 0, 1, 0, 1]
+                }, 
+                {
+                 "tileid":4,
+                 "wangid":[0, 1, 0, 2, 0, 1, 0, 1]
+                }, 
+                {
+                 "tileid":5,
+                 "wangid":[0, 1, 0, 2, 0, 2, 0, 1]
+                }, 
+                {
+                 "tileid":6,
+                 "wangid":[0, 1, 0, 1, 0, 2, 0, 1]
+                }, 
+                {
+                 "tileid":20,
+                 "wangid":[0, 2, 0, 2, 0, 1, 0, 1]
+                }, 
+                {
+                 "tileid":21,
+                 "wangid":[0, 2, 0, 2, 0, 2, 0, 2]
+                }, 
+                {
+                 "tileid":22,
+                 "wangid":[0, 1, 0, 1, 0, 2, 0, 2]
+                }, 
+                {
+                 "tileid":36,
+                 "wangid":[0, 2, 0, 1, 0, 1, 0, 1]
+                }, 
+                {
+                 "tileid":37,
+                 "wangid":[0, 2, 0, 1, 0, 1, 0, 2]
+                }, 
+                {
+                 "tileid":38,
+                 "wangid":[0, 1, 0, 1, 0, 1, 0, 2]
+                }, 
+                {
+                 "tileid":52,
+                 "wangid":[0, 2, 0, 1, 0, 2, 0, 2]
+                }, 
+                {
+                 "tileid":53,
+                 "wangid":[0, 2, 0, 2, 0, 1, 0, 2]
+                }, 
+                {
+                 "tileid":68,
+                 "wangid":[0, 1, 0, 2, 0, 2, 0, 2]
+                }, 
+                {
+                 "tileid":69,
+                 "wangid":[0, 2, 0, 2, 0, 2, 0, 1]
+                }, 
+                {
+                 "tileid":84,
+                 "wangid":[0, 1, 0, 3, 0, 1, 0, 1]
+                }, 
+                {
+                 "tileid":85,
+                 "wangid":[0, 1, 0, 3, 0, 3, 0, 1]
+                }, 
+                {
+                 "tileid":86,
+                 "wangid":[0, 1, 0, 1, 0, 3, 0, 1]
+                }, 
+                {
+                 "tileid":100,
+                 "wangid":[0, 3, 0, 3, 0, 1, 0, 1]
+                }, 
+                {
+                 "tileid":101,
+                 "wangid":[0, 3, 0, 3, 0, 3, 0, 3]
+                }, 
+                {
+                 "tileid":102,
+                 "wangid":[0, 1, 0, 1, 0, 3, 0, 3]
+                }, 
+                {
+                 "tileid":116,
+                 "wangid":[0, 3, 0, 1, 0, 1, 0, 1]
+                }, 
+                {
+                 "tileid":117,
+                 "wangid":[0, 3, 0, 1, 0, 1, 0, 3]
+                }, 
+                {
+                 "tileid":118,
+                 "wangid":[0, 1, 0, 1, 0, 1, 0, 3]
+                }]
+        }]
 }
