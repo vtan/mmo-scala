@@ -59,7 +59,7 @@ final case class EntityAppeared(
 
 final case class EntityDied(id: EntityId) extends PlayerEvent
 
-final case class EntityDamaged(id: EntityId, damage: Int, hitPoints: Int) extends PlayerEvent
+final case class EntityHitPointsChanged(id: EntityId, damage: Option[Int], hitPoints: Int) extends PlayerEvent
 
 final case class StatsChanged(
   xp: Option[Int]

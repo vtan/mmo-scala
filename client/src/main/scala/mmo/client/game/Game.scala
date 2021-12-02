@@ -254,14 +254,16 @@ class Game(
         )))
         ()
 
-      case EntityDamaged(id, damage, hitPoints) =>
+      case EntityHitPointsChanged(id, damageOpt, hitPoints) =>
         entityStates.get(id).foreach { entity =>
-          floatingLabels += FloatingLabel(
-            initialPosition = entity.position + V2(0.5, -entity.appearance.height.toDouble + 1),
-            startTime = now,
-            label = damage.toString,
-            color = if (id == playerId) colors.red else colors.white
-          )
+          damageOpt.foreach { damage =>
+            floatingLabels += FloatingLabel(
+              initialPosition = entity.position + V2(0.5, -entity.appearance.height.toDouble + 1),
+              startTime = now,
+              label = damage.toString,
+              color = if (id == playerId) colors.red else colors.white
+            )
+          }
           entityStates(id) = entity.copy(hitPoints = hitPoints)
         }
 

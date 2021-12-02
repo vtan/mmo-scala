@@ -1,6 +1,6 @@
 package mmo.server.game
 
-import mmo.common.api.{Constants, Direction, EntityAttacked, EntityDamaged, EntityDied, Id, PlayerCommand, StatsChanged, Teleported}
+import mmo.common.api.{Constants, Direction, EntityAttacked, EntityHitPointsChanged, EntityDied, Id, PlayerCommand, StatsChanged, Teleported}
 import mmo.common.linear.V2
 
 class PlayerActionLogic(
@@ -120,7 +120,7 @@ class PlayerActionLogic(
       case Some(mob) =>
         val damage = 1
         val remainingHitPoints = Math.max(0, mob.hitPoints - damage)
-        val entityDamaged = EntityDamaged(mob.id, damage = damage, hitPoints = remainingHitPoints)
+        val entityDamaged = EntityHitPointsChanged(mob.id, damage = Some(damage), hitPoints = remainingHitPoints)
         if (remainingHitPoints > 0) {
           Broadcast.toMap(entityDamaged, mob.mapId)(state.players.values)
           state.updateMob(mob.copy(
@@ -148,6 +148,29 @@ class PlayerActionLogic(
           ).updatePlayers(playersWithXp)
         }
       case None => state
+    }
+  }
+
+  def healPlayers(state: GameState): GameState = {
+
+    def isInMobAggroRange(position: V2[Double]): Boolean =
+      state.mobs.values.exists(mob => (mob.position - position).lengthSq <= mob.template.aggroRadiusSq)
+
+    val healedPlayers = state.players.values
+      .filter(player => player.hitPoints != player.maxHitPoints && !isInMobAggroRange(player.position))
+      .map(player => player.copy(hitPoints = player.hitPoints + 1))
+
+    if (healedPlayers.nonEmpty) {
+      healedPlayers.groupBy(_.mapId).foreach {
+        case (mapId, playersOnMap) =>
+          val events = playersOnMap.map(p => EntityHitPointsChanged(id = p.id, damage = None, hitPoints = p.hitPoints))
+          events.foreach { event =>
+            Broadcast.toMap(event, mapId)(state.players.values)
+          }
+      }
+      state.updatePlayers(healedPlayers)
+    } else {
+      state
     }
   }
 }

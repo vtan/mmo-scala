@@ -55,14 +55,19 @@ class GameLogic(
     newState
   }
 
-  def timerTicked(state: GameState): GameState = {
-    val afterSmallTick = mobUpdateLogic.updateMobs(state)
+  private val afterSmallTick = mobUpdateLogic.updateMobs _
+
+  private val afterLargeTick = Function.chain(Seq(
+    afterSmallTick,
+    mobSpawnLogic.respawnMobs,
+    playerSpawnLogic.respawnPlayers,
+    playerActionLogic.healPlayers
+  ))
+
+  def timerTicked(state: GameState): GameState =
     if (state.tick.isLargeTick) {
-      playerSpawnLogic.respawnPlayers(
-        mobSpawnLogic.respawnMobs(afterSmallTick)
-      )
+      afterLargeTick(state)
     } else {
-      afterSmallTick
+      afterSmallTick(state)
     }
-  }
 }

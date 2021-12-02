@@ -1,6 +1,6 @@
 package mmo.server.game
 
-import mmo.common.api.{Direction, EntityAttacked, EntityDamaged, EntityDied, EntityPositionsChanged, Id, MobId, PlayerEvent, PlayerId}
+import mmo.common.api.{Direction, EntityAttacked, EntityHitPointsChanged, EntityDied, EntityPositionsChanged, Id, MobId, PlayerEvent, PlayerId}
 import mmo.common.linear.V2
 import mmo.common.map.GameMap
 
@@ -96,13 +96,13 @@ class MobUpdateLogic(
       case newHitPoints if newHitPoints > 0 =>
         (
           player.copy(hitPoints = newHitPoints),
-          Seq(EntityDamaged(player.id, damage, newHitPoints)),
+          Seq(EntityHitPointsChanged(player.id, Some(damage), newHitPoints)),
           None
         )
       case _ =>
         (
           player.copy(hitPoints = 0),
-          Seq(EntityDamaged(player.id, damage, 0), EntityDied(player.id)),
+          Seq(EntityHitPointsChanged(player.id, Some(damage), 0), EntityDied(player.id)),
           Some((state.tick + ServerConstants.playerRespawnTime, player.id))
         )
     }
